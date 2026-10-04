@@ -1,0 +1,2 @@
+Place downloaded screenshots here as <id>.jpg (see README + npm run fetch:screenshots).
+Files are gitignored except this marker — review each image by hand before shipping.
