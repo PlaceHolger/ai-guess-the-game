@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+# fetched screenshots are local-only (see README); keep the .gitkeep + attribution
+public/screenshots/*.jpg
+public/screenshots/*/*.jpg
+public/screenshots/*.png
+public/screenshots/*/*.png
+public/screenshots/*.webp
+public/screenshots/*/*.webp

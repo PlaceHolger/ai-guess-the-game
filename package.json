@@ -1,0 +1,35 @@
+{
+  "name": "game-guesser",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "predev": "node scripts/build-data.mjs",
+    "build": "tsc -b && vite build",
+    "prebuild": "node scripts/build-data.mjs",
+    "preview": "vite preview",
+    "fetch:screenshots": "node scripts/fetch-igdb.mjs",
+    "fetch:retro": "node scripts/fetch-retro.mjs",
+    "import": "node scripts/import-igdb.mjs",
+    "add-custom": "node scripts/add-custom.mjs",
+    "audit": "node scripts/audit.mjs",
+    "record-alts": "node scripts/record-alts.mjs",
+    "remove": "node scripts/remove-game.mjs",
+    "backfill": "node scripts/backfill-auto.mjs",
+    "test": "vitest run",
+    "data:build": "node scripts/build-data.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.6.3",
+    "vite": "^6.0.0",
+    "vitest": "^5.0.3"
+  }
+}
