@@ -1,24 +1,34 @@
 import { GAMES, type GameEntry } from '../data/games'
 
 export interface PixelLevel {
-  /** grid size, 0 = full resolution */
+  /** grid width in cells (height follows the shot aspect), 0 = full resolution */
   size: number
   points: number
 }
 
-// 4x4 -> 8x8 -> 16x16 -> 32x32 -> 64x64 -> 96x96 -> full. Fewer points per reveal.
+// Reveal tiers by grid width: 16 -> 32 -> 48 -> 64 -> 96 -> full. The grid
+// height follows the shot aspect (16x9 tiers on widescreen); points fall
+// linearly per reveal.
 export const LEVELS: PixelLevel[] = [
-  { size: 4, points: 1000 },
-  { size: 8, points: 500 },
-  { size: 16, points: 250 },
-  { size: 32, points: 125 },
-  { size: 64, points: 60 },
-  { size: 96, points: 40 },
-  { size: 0, points: 20 },
+  { size: 16, points: 500 },
+  { size: 32, points: 400 },
+  { size: 48, points: 300 },
+  { size: 64, points: 200 },
+  { size: 96, points: 100 },
+  { size: 0, points: 50 },
 ]
 
 export function levelLabel(level: PixelLevel): string {
   return level.size === 0 ? 'Full' : `${level.size}×${level.size}`
+}
+
+/** Honest grid label for the level chips: the pixel grid follows the
+ *  screenshot aspect (96x54 for 16:9), so labels adapt once known. */
+export function gridLabel(size: number, aspect: number | null): string {
+  if (size === 0) return 'Full'
+  if (!aspect || !(aspect > 0)) return `${size}×${size}`
+  if (aspect >= 1) return `${size}×${Math.max(1, Math.round(size / aspect))}`
+  return `${Math.max(1, Math.round(size * aspect))}×${size}`
 }
 
 export function pointsForLevel(idx: number): number {
@@ -41,11 +51,170 @@ export function randomFrom(pool: GameEntry[], excludeId?: string): GameEntry {
   return list[Math.floor(Math.random() * list.length)]
 }
 
-/** Shareable link that opens exactly one level. */
-export function shareLink(gameId: string): string {
+/** Fresh-first ordering for picks: never-played (any session) first, then
+ *  seen-in-past-sessions, then seen-this-session. Fixes "same games again"
+ *  across reloads; rotation within a game stays per appearance. */
+export function preferFresh<T extends { id: string }>(
+  pool: T[],
+  session: Set<string>,
+  persisted: Set<string>,
+): T[] {
+  const groups: [T[], T[], T[]] = [[], [], []]
+  for (const g of pool) {
+    groups[session.has(g.id) ? 2 : persisted.has(g.id) ? 1 : 0].push(g)
+  }
+  return [...shuffle(groups[0]), ...shuffle(groups[1]), ...shuffle(groups[2])]
+}
+
+export const YEAR_MIN = 1970
+export const YEAR_MAX = 2026
+
+/** Pool context for a share link: active package + non-default filters so
+ *  the recipient's "next random" stays in the same universe. */
+export interface SharePool {
+  pkg: string | null
+  genres: string[]
+  publishers: string[]
+  platforms: string[]
+  developers: string[]
+  franchises: string[]
+  showNiche: boolean
+  ymin: number
+  ymax: number
+}
+
+/** Shareable link that opens exactly one level, plus its pool context
+ *  (package, years, niche flag, non-empty facets — all optional) and,
+ *  optionally, the exact screenshot to open (rotation position). */
+export function shareLink(gameId: string, pool?: SharePool | null, shot?: number | null): string {
   const url = new URL(window.location.href)
   url.searchParams.set('game', gameCode(gameId))
+  for (const k of ['pkg', 'g', 'pub', 'plat', 'dev', 'fr', 'niche', 'ymin', 'ymax', 'round', 'i', 's']) {
+    url.searchParams.delete(k)
+  }
+  if (pool) {
+    if (pool.pkg) url.searchParams.set('pkg', pool.pkg)
+    if (pool.showNiche) url.searchParams.set('niche', '1')
+    if (pool.ymin !== YEAR_MIN || pool.ymax !== YEAR_MAX) {
+      url.searchParams.set('ymin', String(pool.ymin))
+      url.searchParams.set('ymax', String(pool.ymax))
+    }
+    const facets: Array<[string, string[]]> = [
+      ['g', pool.genres],
+      ['pub', pool.publishers],
+      ['plat', pool.platforms],
+      ['dev', pool.developers],
+      ['fr', pool.franchises],
+    ]
+    for (const [key, vals] of facets) {
+      for (const v of vals) url.searchParams.append(key, v)
+    }
+  }
+  if (shot !== undefined && shot !== null) url.searchParams.set('s', String(Math.max(0, shot)))
   return url.toString()
+}
+
+/** Shareable round link: game codes in play order + current position.
+ *  Per-game screenshots ride along as `code~shotIdx` so a handpicked funny
+ *  frame survives the trip. */
+export function roundLink(queue: string[], idx: number, shots?: Array<number | null>): string {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('game')
+  for (const k of ['pkg', 'g', 'pub', 'plat', 'dev', 'fr', 'niche', 'ymin', 'ymax', 'i', 'round', 's']) {
+    url.searchParams.delete(k)
+  }
+  const refs = queue.map((id, k) => {
+    const code = gameCode(id)
+    const s = shots?.[k]
+    return s !== undefined && s !== null ? `${code}~${Math.max(0, s)}` : code
+  })
+  url.searchParams.set('round', refs.join(','))
+  url.searchParams.set('i', String(Math.max(0, idx)))
+  return url.toString()
+}
+
+/** Resolve a ?round= link against the pool: ordered ids, clamped position,
+ *  and per-game screenshot positions (null = rotation default). */
+export function findSharedRound(
+  games: GameEntry[], code: string, idx: number,
+): { ids: string[]; pos: number; shots: Array<number | null> } | null {
+  const parts = code.split(',').filter(Boolean)
+  const ids: string[] = []
+  const shots: Array<number | null> = []
+  for (const part of parts) {
+    const [c, s] = part.split('~')
+    const id = games.find((g) => gameCode(g.id) === c.toLowerCase())?.id
+    if (!id) continue
+    ids.push(id)
+    const n = s === undefined || s === '' ? NaN : Number(s)
+    shots.push(Number.isInteger(n) && n >= 0 ? n : null)
+  }
+  if (ids.length === 0) return null
+  return { ids, pos: Math.min(Math.max(0, idx), ids.length - 1), shots }
+}
+
+/** Pool context parsed from a share link (?game= must be present). Years
+ *  absent from the URL stay absent (no silent 0-0); pkg validated. */
+export interface SharedPoolPatch {
+  pkg: string | null
+  patch: {
+    genres?: string[]
+    publishers?: string[]
+    platforms?: string[]
+    developers?: string[]
+    franchises?: string[]
+    showNiche?: boolean
+    ymin?: number
+    ymax?: number
+  }
+  label: string
+}
+
+export function parseSharedPool(sp: URLSearchParams, knownPackages: string[]): SharedPoolPatch | null {
+  if (!sp.has('game')) return null
+  const pkg = sp.get('pkg')
+  const pkgKnown = !!pkg && knownPackages.includes(pkg)
+  const patch: SharedPoolPatch['patch'] = {}
+  if (sp.get('niche') === '1') patch.showNiche = true
+  const yminRaw = sp.get('ymin')
+  const ymaxRaw = sp.get('ymax')
+  const ymin = yminRaw === null ? NaN : Number(yminRaw)
+  const ymax = ymaxRaw === null ? NaN : Number(ymaxRaw)
+  if (Number.isInteger(ymin) && Number.isInteger(ymax)) {
+    patch.ymin = ymin
+    patch.ymax = ymax
+  }
+  const lists: Array<[string, 'genres' | 'publishers' | 'platforms' | 'developers' | 'franchises']> = [
+    ['g', 'genres'],
+    ['pub', 'publishers'],
+    ['plat', 'platforms'],
+    ['dev', 'developers'],
+    ['fr', 'franchises'],
+  ]
+  let facetCount = 0
+  for (const [param, key] of lists) {
+    const vals = sp.getAll(param)
+    if (vals.length > 0) {
+      patch[key] = vals
+      facetCount += vals.length
+    }
+  }
+  if (!pkgKnown && facetCount === 0 && !patch.showNiche && patch.ymin === undefined) return null
+  const bits: string[] = []
+  if (pkgKnown) bits.push(`\u{1F4E6} ${pkg}`)
+  if (patch.ymin !== undefined) bits.push(`${patch.ymin}\u2013${patch.ymax}`)
+  if (patch.showNiche) bits.push('niche picks')
+  if (facetCount > 0) bits.push(`${facetCount} filter${facetCount > 1 ? 's' : ''}`)
+  return { pkg: pkgKnown ? pkg! : null, patch, label: bits.join(' \u00B7 ') || 'shared filters' }
+}
+
+/** Group label for platforms with fewer than this many games. */
+export const RARE_PLATFORM_COUNT = 5
+
+/** Platform matching with a grouped tail: games on rare platforms match 'Others'. */
+export function platformHit(gamePlatforms: string[], selected: string[], rare: string[]): boolean {
+  if (selected.length === 0) return true
+  return gamePlatforms.some((p) => selected.includes(p) || (selected.includes('Others') && rare.includes(p)))
 }
 
 /** Stable short code per level (7 hex chars from the id hash). Opaque in
@@ -201,26 +370,45 @@ export function discordRoundText(solved: number, totalGames: number, points: num
 }
 
 /** Pre-formatted text the player can paste into Discord after solving. */
-export function discordResultText(game: GameEntry, levelIdx: number, points: number): string {
+export function discordResultText(game: GameEntry, levelIdx: number, points: number, pool?: SharePool | null, shot?: number | null): string {
   const lvl = LEVELS[levelIdx]
   return (
     `🎮 **Guess the Game** — I guessed **${game.title} (${game.year})** ` +
     `at **${levelLabel(lvl)}** for **${points} pts**! ` +
-    `Can you beat me? ${shareLink(game.id)}`
+    `Can you beat me? ${shareLink(game.id, pool, shot)}`
   )
 }
 
 /** Mid-game challenge text: current level and worth, but never the title. */
-export function discordChallengeText(game: GameEntry, levelIdx: number, points: number): string {
+export function discordChallengeText(game: GameEntry, levelIdx: number, points: number, pool?: SharePool | null, shot?: number | null): string {
   const lvl = LEVELS[levelIdx]
   return (
     `🎮 **Guess the Game** — I'm stuck at **${levelLabel(lvl)}** ` +
-    `(worth **${points} pts**), can you beat me? ${shareLink(game.id)}`
+    `(worth **${points} pts**), can you beat me? ${shareLink(game.id, pool, shot)}`
   )
 }
 
 const SCORE_KEY = 'gameguesser.totalScore'
 const SOLVED_KEY = 'gameguesser.solvedCount'
+const SEEN_KEY = 'gameguesser.seenGames'
+
+/** Persisted play history (solved or gave up): reloads don't wipe it, so
+ *  peeking at a solution and replaying at 4x4 scores a capped repeat. */
+export function loadSeen(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(SEEN_KEY) ?? '{}') as Record<string, boolean>
+  } catch {
+    return {}
+  }
+}
+
+export function markSeen(id: string): void {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify({ ...loadSeen(), [id]: true }))
+  } catch {
+    // ignore
+  }
+}
 
 export function loadScore(): { total: number; solved: number } {
   try {

@@ -60,6 +60,8 @@ function normTokens(s: string): string[] {
 /**
  * True when every numeral in the guess is covered by the other game's title
  * or aliases ("gothic 1" can't mean Gothic II). Non-numeral guesses pass.
+ * A numeral equal to the game's release year also covers ("Doom (1993)"
+ * may mean the 1993 Doom) — autocomplete picks carry their year.
  */
 export function numeralsCovered(guess: string, other: GameEntry): boolean {
   const nums = tokens(guess).filter((t) => /^\d+$/.test(t) || ROMAN_NUMERALS[t])
@@ -68,7 +70,11 @@ export function numeralsCovered(guess: string, other: GameEntry): boolean {
   for (const a of other.aliases) {
     for (const t of normTokens(a)) oSet.add(t)
   }
-  return nums.every((t) => oSet.has(ROMAN_NUMERALS[t] ?? t))
+  return nums.every((t) => {
+    const n = ROMAN_NUMERALS[t] ?? t
+    if (Number(n) === other.year) return true
+    return oSet.has(n)
+  })
 }
 export function isMoreSpecific(guess: string, gameTitle: string, otherTitle: string): boolean {
   const g = new Set(normTokens(guess).filter((t) => !STOPWORDS.has(t)))

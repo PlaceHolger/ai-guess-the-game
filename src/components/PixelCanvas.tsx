@@ -8,6 +8,10 @@ interface Props {
   /** pixel grid size, 0 = full resolution */
   resolution: number
   seed: string
+  /** reports the actually displayed candidate index (follows fallthrough) */
+  onShow?: (idx: number) => void
+  /** reports the loaded image aspect (width/height) for honest grid labels */
+  onAspect?: (aspect: number) => void
 }
 
 const W = 640
@@ -54,8 +58,29 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, seed: string) {
  * around — a deleted file falls through to the next screenshot, then to
  * the placeholder. Each candidate gets one delayed retry so a transient
  * CDN hiccup doesn't burn through good shots to the placeholder.
+ *
+ * Loading strategy: one shared in-memory image per URL (no re-download
+ * across resolutions — always the full variant, since IGDB's smaller
+ * sizes are center-cropped and would show different content), and LOADING
+ * variant instead of full 1080p, and LOADING only paints after 250ms so
+ * cached draws never flash.
  */
-export default function PixelCanvas({ srcs, startAt, resolution, seed }: Props) {
+const imgCache = new Map<string, HTMLImageElement>()
+
+function cachedImage(src: string): HTMLImageElement {
+  let img = imgCache.get(src)
+  if (!img) {
+    img = new Image()
+    img.src = src
+    imgCache.set(src, img)
+    if (imgCache.size > 12) {
+      const oldest = imgCache.keys().next()
+      if (!oldest.done && oldest.value !== src) imgCache.delete(oldest.value)
+    }
+  }
+  return img
+}
+export default function PixelCanvas({ srcs, startAt, resolution, seed, onShow, onAspect }: Props) {
   const ref = useRef<HTMLCanvasElement>(null)
   const [skip, setSkip] = useState(0)
   const [retryTick, setRetryTick] = useState(0)
@@ -81,10 +106,17 @@ export default function PixelCanvas({ srcs, startAt, resolution, seed }: Props) 
     }
     const idx = (startAt + skip) % srcs.length
     const src = srcs[idx]
-    drawLoading(ctx)
+    if (onShow) onShow(idx)
+    // Retries bypass the cache so a failed load really hits the network again.
+    if (retryTick > 0) imgCache.delete(src)
+    const img = cachedImage(src)
 
     let timer: ReturnType<typeof setTimeout> | undefined
+    let settled = false
     const onError = () => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
       if (!retried.current.has(idx)) {
         retried.current.add(idx)
         timer = setTimeout(() => setRetryTick((t) => t + 1), 1200)
@@ -92,53 +124,66 @@ export default function PixelCanvas({ srcs, startAt, resolution, seed }: Props) 
         setSkip((s) => s + 1)
       }
     }
-
-    if (resolution === 0) {
-      const img = new Image()
-      img.src = src
-      img.onload = () => {
-        ctx.imageSmoothingEnabled = true
-        ctx.clearRect(0, 0, W, H)
-        ctx.drawImage(img, 0, 0, W, H)
-      }
-      img.onerror = onError
-      return () => {
-        if (timer) clearTimeout(timer)
-      }
+    const drawFull = () => {
+      // contain (never stretch, never crop): full image, bars if needed
+      ctx.imageSmoothingEnabled = true
+      const scale = Math.min(W / img.width, H / img.height)
+      const dw = img.width * scale
+      const dh = img.height * scale
+      ctx.fillStyle = '#000'
+      ctx.fillRect(0, 0, W, H)
+      ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh)
     }
-
-    const tiny = document.createElement('canvas')
-    tiny.width = resolution
-    tiny.height = resolution
-    const tctx = tiny.getContext('2d')
-    if (!tctx) return
-    tctx.imageSmoothingEnabled = true
-
-    const img = new Image()
-    img.src = src
-    img.onload = () => {
-      // cover-crop source into the tiny square
+    const drawPixels = () => {
+      // grid follows the source aspect (96x54 for 16:9, not 96x96): every
+      // pixel of the shot survives, cells stay square, nothing is cropped
       const sAspect = img.width / img.height
-      let sw = img.width
-      let sh = img.height
-      let sx = 0
-      let sy = 0
-      if (sAspect > 1) {
-        sw = img.height
-        sx = (img.width - sw) / 2
-      } else {
-        sh = img.width
-        sy = (img.height - sh) / 2
-      }
-      tctx.clearRect(0, 0, tiny.width, tiny.height)
-      tctx.drawImage(img, sx, sy, sw, sh, 0, 0, tiny.width, tiny.height)
+      const tw = sAspect >= 1 ? resolution : Math.max(1, Math.round(resolution * sAspect))
+      const th = sAspect >= 1 ? Math.max(1, Math.round(resolution / sAspect)) : resolution
+      const tiny = document.createElement('canvas')
+      tiny.width = tw
+      tiny.height = th
+      const tctx = tiny.getContext('2d')
+      if (!tctx) return
+      tctx.imageSmoothingEnabled = true
+      tctx.clearRect(0, 0, tw, th)
+      tctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, tw, th)
       ctx.imageSmoothingEnabled = false
-      ctx.clearRect(0, 0, W, H)
-      ctx.drawImage(tiny, 0, 0, W, H)
+      ctx.fillStyle = '#000'
+      ctx.fillRect(0, 0, W, H)
+      // same contain rule as full-res: no stretch, bars if the grid is narrower
+      const tAspect = tw / th
+      let dw = W
+      let dh = H
+      if (tAspect > W / H) dh = W / tAspect
+      else dw = H * tAspect
+      ctx.drawImage(tiny, (W - dw) / 2, (H - dh) / 2, dw, dh)
+    }
+    const draw = () => (resolution === 0 ? drawFull() : drawPixels())
+
+    // Cached and decoded: paint immediately, no loading flash.
+    if (img.complete && img.naturalWidth > 0) {
+      if (onAspect) onAspect(img.naturalWidth / img.naturalHeight)
+      draw()
+      return
+    }
+    // Otherwise show LOADING only if it actually takes a moment.
+    timer = setTimeout(() => {
+      if (!settled) drawLoading(ctx)
+    }, 250)
+    img.onload = () => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      if (onAspect) onAspect(img.naturalWidth / img.naturalHeight)
+      draw()
     }
     img.onerror = onError
     return () => {
+      settled = true
       if (timer) clearTimeout(timer)
+      img.onload = null
+      img.onerror = null
     }
   }, [srcs, skip, startAt, resolution, seed, retryTick])
 

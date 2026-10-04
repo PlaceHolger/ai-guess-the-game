@@ -36,8 +36,8 @@ screenshots come later (§4). Production build: `npm run build` (output `dist/`)
   platform / franchise — OR within a facet) plus years +
   decade chips. They define the pool for free play and rounds. **Packages** (📦 row:
   Star Wars, N64, Sierra, Made in Germany, …) are one-click presets over the
-  same filters. The default pool is **mainstream only** — tick *fan picks* to
-  include niche/homebrew levels. Choices persist in localStorage.
+  same filters. The default pool is **mainstream only** — tick *niche picks* to
+  include niche/homebrew levels. Choices persist in localStorage. Platforms with fewer than 5 games collapse into an "Others" group, and long facet lists have filter boxes.
 - Each appearance shows a **random screenshot** of the level (primary +
   alternates rotate for variety); shared links always open the primary shot.
 - **Start round** plays 10 random levels from the filtered pool, then shows a

@@ -117,6 +117,11 @@ describe('numeralsCovered', () => {
   it('numeral-free guesses pass everything', () => {
     expect(numeralsCovered('gothic', mk('Gothic II'))).toBe(true)
   })
+  it('a numeral equal to the release year covers (autocomplete picks)', () => {
+    const doom93 = { ...mk('DOOM'), year: 1993 }
+    expect(numeralsCovered('doom (1993)', doom93)).toBe(true)
+    expect(numeralsCovered('doom (1993)', mk('DOOM II'))).toBe(false)
+  })
 })
 
 describe('titleMask', () => {
@@ -157,11 +162,13 @@ describe('regional & short names (real pool)', () => {
   it('"final fantasy" is genuinely ambiguous these days (help example retired)', () => {
     expect(fits('final fantasy').length).toBeGreaterThan(5)
   })
-  it('"gothic 4" means Arcania — never Gothic 3 (numerals are typo-immune)', () => {
-    expect(checkGuess('gothic 4', getGame('arcania-gothic-4')!).correct).toBe(true)
+  it('"gothic 4" means Arcania — never Gothic 3 (numerals are typo-immune)', () => {    expect(checkGuess('gothic 4', getGame('arcania-gothic-4')!).correct).toBe(true)
     const g3 = checkGuess('gothic 4', getGame('gothic-3')!)
     expect(g3.correct).toBe(false)
     expect(g3.close).toBe(true)
     expect(fits('gothic 4')).toEqual(['arcania-gothic-4'])
+  })
+  it('a pick with year ("Doom (1993)") resolves to exactly that game', () => {
+    expect(fits('doom (1993)')).toEqual(['doom'])
   })
 })

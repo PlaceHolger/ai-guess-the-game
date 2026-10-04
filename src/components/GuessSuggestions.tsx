@@ -13,7 +13,7 @@ export default function GuessSuggestions({ suggestions, onPick }: Props) {
   return (
     <div className="gamelist">
       {suggestions.map((s) => (
-        <button key={s.id} type="button" onClick={() => onPick(s.title)}>
+        <button key={s.id} type="button" onClick={() => onPick(`${s.title} (${s.year})`)}>
           {s.title} <span className="muted">({s.year})</span>
         </button>
       ))}

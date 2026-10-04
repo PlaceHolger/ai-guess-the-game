@@ -21,6 +21,9 @@
   filter), playtime stat, mood tags as categories. Needs RAWG key (have it)
   + attribution row (footer ready).
 - **Wikidata aliases**: non-IGDB regional titles. Only if IGDB gaps hurt.
+- **Top 20 per platform** (Nintendo / Sony / Microsoft / Sega / C64):
+  per-platform IGDB top-by-rating cross-check against the pool, import the
+  gaps like the DOS batch (dry, dedupe editions, fetch, backfill, verify).
 - **SteamGridDB artwork**: alternative art source. Uneven quality, skip unless
   a gap demands it.
 

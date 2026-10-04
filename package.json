@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "predev": "node scripts/build-data.mjs",
+    "predev": "node scripts/build-data.mjs && node scripts/list-games.mjs",
     "build": "tsc -b && vite build",
-    "prebuild": "node scripts/build-data.mjs",
+    "prebuild": "node scripts/build-data.mjs && node scripts/list-games.mjs",
     "preview": "vite preview",
     "fetch:screenshots": "node scripts/fetch-igdb.mjs",
     "fetch:retro": "node scripts/fetch-retro.mjs",
@@ -20,7 +20,8 @@
     "backfill": "node scripts/backfill-auto.mjs",
     "backfill-remote": "node scripts/backfill-remote.mjs",
     "test": "vitest run",
-    "data:build": "node scripts/build-data.mjs"
+    "data:build": "node scripts/build-data.mjs",
+    "list": "node scripts/list-games.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

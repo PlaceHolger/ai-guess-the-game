@@ -20,8 +20,9 @@ Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
 - **Rounds**: 10 games from the filtered pool, summary with per-game scores,
   single-game share links, copyable round result.
 - **Sharing**: level links (`?game=` short hash, no title spoiler),
-  paste-ready result/round messages as text, OG tags for unfurls
-  (needs public https host — see OPERATIONS §6).
+  paste-ready result/round messages as text, mid-game challenge text
+  (level + worth, never the title), spoiler-free shared-challenge banner,
+  OG tags for unfurls (needs public https host — see OPERATIONS §6).
 - **Filters**: multi-select facets (genre incl. RPG/Shooter groups, publisher,
   developer, platform, franchise), years + decades, mainstream-only default
   with *fan picks* toggle, 17 package presets (Star Wars, N64, Sierra,
@@ -46,9 +47,11 @@ Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
   1993 showing 2016 shots, Doom II listed twice. Minecraft entry is
   2016-dated, Arkham Knight skin matched once — review via `audit --year XXXX`.
   (Fallout now shows FO1 CDN shots; Larry/AC1/Journey play via CDN remotes.)
-- **Deck13 batch added**: Ankh 1, Jack Keane 2, Blood Knights, Black Sails:
-  The Ghost Ship, Haunted (all default-visible). "Tiger & Chicken" is not
-  in IGDB — needs year/platform or alternate spelling to add.
+- **Deck13/Crytek batches added**: Ankh 1, Jack Keane 2, Blood Knights,
+  Black Sails: The Ghost Ship, Haunted, Moorhuhn: Tiger and Chicken,
+  Crysis 1-3, Ryse, KCD 1, Robinson, Hunt: Showdown, The Climb,
+  Sniper: Ghost Warrior 2 (all default-visible). "Tiger & Chicken" turned
+  out to be Moorhuhn: Tiger and Chicken (IGDB, Deck13 co-dev).
 - **Crysis 1** missing (no clean Crytek Frankfurt entity in IGDB).
 - **~20 unreleased-2026 placeholders** kept deliberately — verify on release.
 - **RAWG credits row** in footer not yet added (do with any RAWG display change).

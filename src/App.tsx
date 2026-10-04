@@ -12,34 +12,57 @@ import {
   discordRoundText,
   earnedPoints,
   findSharedGame,
+  findSharedRound,
   franchiseOf,
+  gridLabel,
   isGerman,
   isPopular,
   levelLabel,
   loadScore,
+  loadSeen,
+  markSeen,
+  parseSharedPool,
+  platformHit,
+  preferFresh,
   randomFrom,
   randomGame,
+  roundLink,
   saveScore,
   shareLink,
+  SharedPoolPatch,
   shotsFor,
-  shuffle,
+  RARE_PLATFORM_COUNT,
+  YEAR_MIN,
+  YEAR_MAX,
 } from './lib/game'
 import type { GameEntry } from './data/games'
 
 const GENRES = [...new Set(GAMES.map((g) => g.genre))].sort()
 const PUBLISHERS = [...new Set(GAMES.map((g) => g.publisher))].sort()
-const PLATFORMS = [...new Set(GAMES.flatMap((g) => g.platforms))].sort()
+const PLATFORM_COUNTS = new Map<string, number>()
+for (const g of GAMES) {
+  for (const p of g.platforms) PLATFORM_COUNTS.set(p, (PLATFORM_COUNTS.get(p) ?? 0) + 1)
+}
+const RARE_PLATFORMS = [...PLATFORM_COUNTS].filter(([, n]) => n < RARE_PLATFORM_COUNT).map(([p]) => p).sort()
+const PLATFORM_OPTIONS = [
+  ...[...PLATFORM_COUNTS].filter(([, n]) => n >= RARE_PLATFORM_COUNT).map(([p]) => p).sort(),
+  'Others',
+]
 const DEVELOPERS = [...new Set(GAMES.map((g) => g.developer))].sort()
 const FRANCHISES = [...new Set(GAMES.map(franchiseOf).filter((f): f is string => f !== null))].sort()
 const GENRE_OPTIONS = ['RPG (all)', 'Shooter (all)', ...GENRES]
-const YEAR_MIN = 1970
-const YEAR_MAX = 2026
 const ROUND_SIZE = 10
 
 interface RoundResult {
   solved: boolean
   points: number
   level: string
+  tries: number
+}
+
+interface CustomList {
+  name: string
+  ids: string[]
 }
 
 const DECADES: Array<[string, number, number]> = [
@@ -104,6 +127,23 @@ const PACKAGES: PackageDef[] = [
   { label: 'id Tech', test: (g) => (g.engine ?? '').includes('id Tech') },
 ]
 const FILTER_KEY = 'gameguesser.filters'
+const LISTS_KEY = 'gameguesser.lists'
+
+function loadLists(): CustomList[] {
+  try {
+    const raw = localStorage.getItem(LISTS_KEY)
+    if (raw) {
+      const arr = JSON.parse(raw) as CustomList[]
+      return arr
+        .filter((l) => l && typeof l.name === 'string' && Array.isArray(l.ids))
+        .map((l) => ({ name: l.name, ids: l.ids.filter((id) => typeof id === 'string' && getGame(id)) }))
+        .filter((l) => l.name.length > 0)
+    }
+  } catch {
+    // ignore
+  }
+  return []
+}
 
 function loadFilters(): Filters {
   try {
@@ -132,6 +172,14 @@ function loadFilters(): Filters {
   return DEFAULT_FILTERS
 }
 
+/** Pool context from a share link (?game= must be present). Returns the
+ *  package (validated), a filter patch, and a banner label — or null when
+ *  the link carries no pool context (plain level links). */
+function sharedPoolFromUrl(): SharedPoolPatch | null {
+  const labels = PACKAGES.map((p) => p.label)
+  return parseSharedPool(new URLSearchParams(window.location.search), labels)
+}
+
 async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)
@@ -149,9 +197,19 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 export default function App() {
+  const [initialSharedRound] = useState(() => {
+    const sp = new URLSearchParams(window.location.search)
+    const r = sp.get('round')
+    if (!r) return null
+    return findSharedRound(GAMES, r, Number(sp.get('i')) || 0)
+  })
   const [gameId, setGameId] = useState<string>(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('game')
-    return (fromUrl && findSharedGame(GAMES, fromUrl)?.id) ?? randomGame().id
+    return (
+      (fromUrl && findSharedGame(GAMES, fromUrl)?.id) ??
+      initialSharedRound?.ids[initialSharedRound.pos] ??
+      randomGame().id
+    )
   })
   const [levelIdx, setLevelIdx] = useState(0)
   const [maxLevel, setMaxLevel] = useState(0)
@@ -164,26 +222,74 @@ export default function App() {
   const [message, setMessage] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [{ total, solved: solvedCount }, setScore] = useState(loadScore)
-  const [filters, setFilters] = useState<Filters>(loadFilters)
-  const [activePackage, setActivePackage] = useState<string | null>(null)
+  // Shared pool (?pkg=&g=&… on a ?game= link): applied once on load so the
+  // recipient's "next random" stays in the sender's universe. Own filters
+  // are snapshotted for the restore button.
+  const [initialSharedPool] = useState(() => sharedPoolFromUrl())
+  const [prevFilters] = useState<Filters | null>(() => (initialSharedPool ? loadFilters() : null))
+  const [filters, setFilters] = useState<Filters>(() => {
+    if (!initialSharedPool) return loadFilters()
+    const base = { ...DEFAULT_FILTERS }
+    if (initialSharedPool.pkg) {
+      Object.assign(base, PACKAGES.find((p) => p.label === initialSharedPool.pkg)?.patch)
+    }
+    return { ...base, ...initialSharedPool.patch }
+  })
+  const [activePackage, setActivePackage] = useState<string | null>(() => initialSharedPool?.pkg ?? null)
+  const [sharedPoolLabel, setSharedPoolLabel] = useState<string | null>(() => initialSharedPool?.label ?? null)
   const [initialSharedId] = useState(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('game')
     return (fromUrl && findSharedGame(GAMES, fromUrl)?.id) ?? null
   })
-  const [roundQueue, setRoundQueue] = useState<string[] | null>(null)
+  const [roundQueue, setRoundQueue] = useState<string[] | null>(() => initialSharedRound?.ids ?? null)
   const [roundResults, setRoundResults] = useState<Record<string, RoundResult>>({})
   const [showSummary, setShowSummary] = useState(false)
+  // Custom curated lists (own state + localStorage); rounds from a list keep
+  // its order and can be replayed from the summary.
+  const [lists, setLists] = useState<CustomList[]>(loadLists)
+  const [roundListName, setRoundListName] = useState<string | null>(null)
+  const [newListName, setNewListName] = useState('')
+  const [editingList, setEditingList] = useState<string | null>(null)
+  const [addQuery, setAddQuery] = useState('')
+  // Persisted history snapshot: solving an already-seen game scores capped.
+  const seenBeforeRef = useRef<Set<string> | null>(null)
+  if (seenBeforeRef.current === null) {
+    seenBeforeRef.current = new Set(Object.keys(loadSeen()))
+  }
   // setup screen (packages + filters) vs play screen (game only)
   const [screen, setScreen] = useState<'setup' | 'play'>('play')
   // per-facet search boxes (500+ publishers/developers need filtering)
   const [facetQuery, setFacetQuery] = useState<Record<FacetKey, string>>({
     genres: '', publishers: '', platforms: '', developers: '', franchises: '',
   })
-  // spelling-aid browser: search across all titles, click fills the guess box
-  const [browserQuery, setBrowserQuery] = useState('')
+  // spelling-aid browser removed (guess autocomplete covers it)
   // session no-repeat + random screenshot per appearance (shared links: primary)
   const seenRef = useRef<Set<string>>(new Set([gameId]))
   const [shotPos, setShotPos] = useState(0)
+  const [shotAspect, setShotAspect] = useState<number | null>(null)
+  // Actually displayed screenshot per game (follows rotation fallthrough).
+  const shotHistRef = useRef(new Map<string, number>())
+  const viewedShot = (id: string): number | null => shotHistRef.current.get(id) ?? null
+  const sharedShotsRef = useRef(new Map<string, number>())
+  const sharedShotsInit = useRef(false)
+  if (!sharedShotsInit.current) {
+    sharedShotsInit.current = true
+    const sp = new URLSearchParams(window.location.search)
+    const g = sp.get('game')
+    const s = sp.get('s')
+    if (g && s !== null && !Number.isNaN(Number(s))) {
+      const id = findSharedGame(GAMES, g)?.id
+      if (id) sharedShotsRef.current.set(id, Math.max(0, Number(s)))
+    }
+    const r = sp.get('round')
+    if (r) {
+      const parsed = findSharedRound(GAMES, r, Number(sp.get('i')) || 0)
+      parsed?.ids.forEach((id, k) => {
+        const sh = parsed.shots[k]
+        if (sh !== null && sh !== undefined) sharedShotsRef.current.set(id, sh)
+      })
+    }
+  }
 
   const game = useMemo(() => getGame(gameId) ?? GAMES[0], [gameId])
   const filtered = useMemo(
@@ -192,7 +298,7 @@ export default function App() {
         (g) =>
           genreMatches(g.genre, filters.genres) &&
           (filters.publishers.length === 0 || filters.publishers.includes(g.publisher)) &&
-          (filters.platforms.length === 0 || g.platforms.some((p) => filters.platforms.includes(p))) &&
+          (filters.platforms.length === 0 || platformHit(g.platforms, filters.platforms, RARE_PLATFORMS)) &&
           (filters.developers.length === 0 || filters.developers.includes(g.developer)) &&
           (filters.franchises.length === 0 || filters.franchises.includes(franchiseOf(g) ?? '')) &&
           (filters.showNiche || isPopular(g)) &&
@@ -207,14 +313,6 @@ export default function App() {
     [filtered, activePkg],
   )
   const pool = poolBase.length > 0 ? poolBase : filtered.length > 0 ? filtered : GAMES
-  const browserHits = useMemo(() => {
-    const q = normalize(browserQuery.trim())
-    if (!q) return { total: 0, shown: [] as GameEntry[] }
-    const hits = GAMES.filter(
-      (x) => normalize(x.title).includes(q) || x.aliases.some((a) => normalize(a).includes(q)),
-    )
-    return { total: hits.length, shown: hits.slice(0, 100) }
-  }, [browserQuery])
   const roundSolved = Object.values(roundResults).filter((r) => r.solved).length
   const roundPoints = Object.values(roundResults).reduce((s, r) => s + r.points, 0)
   const hardestTitle: string | undefined = (() => {
@@ -231,8 +329,22 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [game.id],
   )
+  const isSharedRound =
+    roundQueue !== null && initialSharedRound !== null && roundQueue === initialSharedRound.ids
   const finished = solved || gaveUp
   const points = earnedPoints(maxLevel, hintStage)
+  const sharePool = { pkg: activePackage, ...filters }
+  // Suggestions for the list editor (excludes games already on the list).
+  const addSuggestions = useMemo(() => {
+    const q = normalize(addQuery.trim())
+    if (q.length < 2 || editingList === null) return [] as GameEntry[]
+    const onList = new Set(lists.find((l) => l.name === editingList)?.ids ?? [])
+    return GAMES.filter(
+      (x) =>
+        !onList.has(x.id) &&
+        (normalize(x.title).includes(q) || x.aliases.some((a) => normalize(a).includes(q))),
+    ).slice(0, 8)
+  }, [addQuery, editingList, lists])
   // Guess autocomplete: suggestions only, submit stays free-text (the fuzzy
   // matcher still handles typos and regional names the list can't spell).
   const guessSuggestions = useMemo(() => {
@@ -255,11 +367,17 @@ export default function App() {
       setSolved(false)
       setGaveUp(false)
       setMessage(null)
+      setShotAspect(null)
       seenRef.current.add(id)
       const shots = shotsFor(getGame(id) ?? GAMES[0])
-      setShotPos(id === initialSharedId ? 0 : Math.floor(Math.random() * shots.length))
+      setShotPos(
+        sharedShotsRef.current.get(id) ??
+          (id === initialSharedId ? 0 : Math.floor(Math.random() * shots.length)),
+      )
       const url = new URL(window.location.href)
-      url.searchParams.delete('game')
+      for (const k of ['game', 'pkg', 'g', 'pub', 'plat', 'dev', 'fr', 'niche', 'ymin', 'ymax', 'round', 'i', 's']) {
+        url.searchParams.delete(k)
+      }
       window.history.replaceState(null, '', url.toString())
     },
     [initialSharedId],
@@ -294,23 +412,92 @@ export default function App() {
     setActivePackage(label)
   }, [activePackage])
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(LISTS_KEY, JSON.stringify(lists))
+    } catch {
+      // ignore
+    }
+  }, [lists])
+
   const startRound = useCallback(() => {
     const n = Math.min(ROUND_SIZE, pool.length)
     if (n === 0) return
-    const unseen = shuffle(pool.filter((g) => !seenRef.current.has(g.id)))
-    const rest = shuffle(pool.filter((g) => seenRef.current.has(g.id)))
-    const ids = [...unseen, ...rest].slice(0, n).map((g) => g.id)
+    const ids = preferFresh(pool, seenRef.current, seenBeforeRef.current ?? new Set())
+      .slice(0, n)
+      .map((g) => g.id)
     setRoundQueue(ids)
     setRoundResults({})
     setShowSummary(false)
+    setRoundListName(null)
     setScreen('play')
     pickGame(ids[0])
   }, [pool, pickGame])
 
-  // free play: prefer games not yet seen this session, reset when exhausted
+  const playList = useCallback((list: CustomList) => {
+    if (list.ids.length === 0) return
+    setRoundQueue([...list.ids])
+    setRoundResults({})
+    setShowSummary(false)
+    setRoundListName(list.name)
+    setScreen('play')
+    pickGame(list.ids[0])
+  }, [pickGame])
+
+  const replayList = useCallback(() => {
+    if (roundQueue === null) return
+    setRoundResults({})
+    setShowSummary(false)
+    pickGame(roundQueue[0])
+  }, [roundQueue, pickGame])
+
+  const createList = useCallback(() => {
+    const name = newListName.trim()
+    if (!name) return
+    setLists((ls) => (ls.some((l) => l.name === name) ? ls : [...ls, { name, ids: [] }]))
+    setNewListName('')
+    setEditingList(name)
+    setAddQuery('')
+  }, [newListName])
+
+  const deleteList = useCallback((name: string) => {
+    setLists((ls) => ls.filter((l) => l.name !== name))
+    setEditingList((e) => (e === name ? null : e))
+  }, [])
+
+  const addToList = useCallback((display: string) => {
+    const m = display.match(/^(.*) \((\d{4})\)$/)
+    const g = m
+      ? GAMES.find((x) => x.title === m[1] && x.year === Number(m[2]))
+      : GAMES.find((x) => x.title === display)
+    if (!g) return
+    setLists((ls) =>
+      ls.map((l) => (l.name === editingList && !l.ids.includes(g.id) ? { ...l, ids: [...l.ids, g.id] } : l)),
+    )
+  }, [editingList])
+
+  const removeFromList = useCallback((name: string, id: string) => {
+    setLists((ls) => ls.map((l) => (l.name === name ? { ...l, ids: l.ids.filter((x) => x !== id) } : l)))
+  }, [])
+
+  const shareList = useCallback(
+    async (list: CustomList) => {
+      if (!list.ids.length) return
+      const ok = await copyText(roundLink(list.ids, 0, list.ids.map(viewedShot)))
+      flash(ok ? 'List link copied — same games, same order!' : 'Copy failed')
+    },
+    [],
+  )
+
+  // free play: prefer games not yet seen (this session, then past ones)
   const nextFreePick = useCallback((excludeId?: string) => {
-    const fresh = pool.filter((g) => g.id !== excludeId && !seenRef.current.has(g.id))
+    const persisted = seenBeforeRef.current ?? new Set<string>()
+    const fresh = pool.filter(
+      (g) => g.id !== excludeId && !seenRef.current.has(g.id) && !persisted.has(g.id),
+    )
     if (fresh.length) return randomFrom(fresh).id
+    const unsess = pool.filter((g) => g.id !== excludeId && !seenRef.current.has(g.id))
+    if (unsess.length) return randomFrom(unsess).id
     seenRef.current.clear()
     return randomFrom(pool, excludeId).id
   }, [pool])
@@ -319,6 +506,7 @@ export default function App() {
     setRoundQueue(null)
     setRoundResults({})
     setShowSummary(false)
+    setRoundListName(null)
   }, [])
 
   const giveUp = useCallback(() => {
@@ -326,9 +514,11 @@ export default function App() {
     setLevelIdx(LEVELS.length - 1)
     setMessage(null)
     if (roundQueue !== null) {
-      setRoundResults((r) => ({ ...r, [game.id]: { solved: false, points: 0, level: levelLabel(LEVELS[maxLevel]) } }))
+      setRoundResults((r) => ({ ...r, [game.id]: { solved: false, points: 0, level: levelLabel(LEVELS[maxLevel]), tries: attempts } }))
     }
-  }, [roundQueue, game.id, maxLevel])
+    markSeen(game.id)
+    seenBeforeRef.current?.add(game.id)
+  }, [roundQueue, game.id, maxLevel, attempts])
 
   useEffect(() => {
     try {
@@ -383,13 +573,17 @@ export default function App() {
       }
       setSolved(true)
       setLevelIdx(LEVELS.length - 1)
-      const pts = earnedPoints(maxLevel, hintStage)
+      const earned = earnedPoints(maxLevel, hintStage)
+      const repeat = seenBeforeRef.current?.has(game.id) ?? false
+      const pts = repeat ? Math.min(earned, 10) : earned
       const lvl = levelLabel(LEVELS[maxLevel])
       setScore((s) => ({ total: s.total + pts, solved: s.solved + 1 }))
       if (roundQueue !== null) {
-        setRoundResults((r) => ({ ...r, [game.id]: { solved: true, points: pts, level: lvl } }))
+        setRoundResults((r) => ({ ...r, [game.id]: { solved: true, points: pts, level: lvl, tries: attempts + 1 } }))
       }
-      setMessage(`✅ Correct! ${game.title} (${game.year}) — +${pts} pts at ${lvl}${hintStage > 0 ? ` (after ${hintStage} hint${hintStage > 1 ? 's' : ''})` : ''}.`)
+      markSeen(game.id)
+      seenBeforeRef.current?.add(game.id)
+      setMessage(`✅ Correct! ${game.title} (${game.year}) — +${pts} pts at ${lvl}${hintStage > 0 ? ` (after ${hintStage} hint${hintStage > 1 ? 's' : ''})` : ''}${repeat ? ' (repeat — max 10 pts)' : ''}.`)
     } else {
       // The guess fits one or more OTHER games: a single rival redirects
       // ("gothic 4" while Gothic 3 is shown means Arcania), several ask.
@@ -456,7 +650,7 @@ export default function App() {
         }
       }
     }
-  }, [finished, guess, game, maxLevel, roundQueue, wrongs, levelIdx, hintStage])
+  }, [finished, guess, game, maxLevel, roundQueue, wrongs, levelIdx, hintStage, attempts])
 
   const takeHint = useCallback(() => {
     if (finished || hintStage >= 2) return
@@ -484,7 +678,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <h1>🎮 Guess the Game</h1>
-          <p className="sub">Guess the game from pixels. Start at 4×4 — reveal more, score less.</p>
+          <p className="sub">Guess the game from pixels. Start at 16 wide — reveal more, score less.</p>
         </div>
         <div className="score">
           <div><strong>{total}</strong> pts</div>
@@ -498,11 +692,29 @@ export default function App() {
           🔗 Shared challenge — no spoilers, guess first, then forward it!
         </div>
       )}
+      {sharedPoolLabel !== null && (
+        <div className="banner">
+          🎲 Shared pool: <strong>{sharedPoolLabel}</strong> — your filters were switched to match.{' '}
+          {prevFilters !== null && (
+            <button onClick={() => { setFilters(prevFilters); setActivePackage(null); setSharedPoolLabel(null) }}>Restore my filters</button>
+          )}
+        </div>
+      )}
 
       {roundQueue !== null && !showSummary && (
         <div className="banner">
-          🏁 Round game {roundQueue.indexOf(gameId) + 1} of {roundQueue.length} · {roundPoints} pts so far{' '}
-          <button onClick={exitRound}>Exit round</button>
+          🏁 {isSharedRound ? 'Shared round' : 'Round'} game {roundQueue.indexOf(gameId) + 1} of {roundQueue.length} · {roundPoints} pts so far{' '}
+          <button onClick={exitRound}>Exit round</button>{' '}
+          <button
+            onClick={async () => {
+              const ok = await copyText(
+                roundLink(roundQueue, Math.max(0, roundQueue.indexOf(gameId)), roundQueue.map(viewedShot)),
+              )
+              flash(ok ? 'Round link copied — same levels, same shots, same order!' : 'Copy failed')
+            }}
+          >
+            Copy round link
+          </button>
         </div>
       )}
 
@@ -519,10 +731,10 @@ export default function App() {
                 return (
                   <div key={id} className="roundrow">
                     <span>{r?.solved ? '✅' : '❌'} {g.title} <span className="muted">({g.year})</span></span>
-                    <span className="muted">{r ? (r.solved ? `${r.points} pts @ ${r.level}` : `gave up (saw ${r.level})`) : '—'}</span>
+                    <span className="muted">{r ? (r.solved ? `${r.points} pts @ ${r.level} · ${r.tries} ${r.tries === 1 ? 'try' : 'tries'}` : `gave up (saw ${r.level}, ${r.tries} ${r.tries === 1 ? 'try' : 'tries'})`) : '—'}</span>
                     <button
                       onClick={async () => {
-                        const ok = await copyText(shareLink(id))
+                        const ok = await copyText(shareLink(id, sharePool, viewedShot(id)))
                         flash(ok ? 'Challenge link copied — share it anywhere!' : 'Copy failed')
                       }}
                     >
@@ -542,9 +754,18 @@ export default function App() {
               >
                 Copy round result as text
               </button>
-              <button onClick={startRound}>New round</button>
+              <button onClick={roundListName ? replayList : startRound}>{roundListName ? `Replay ${roundListName}` : 'New round'}</button>
               <button onClick={() => { exitRound(); pickGame(nextFreePick()) }}>Free play</button>
+              <button
+                onClick={async () => {
+                  const ok = await copyText(roundLink(roundQueue, Math.max(0, roundQueue.indexOf(gameId)), roundQueue.map(viewedShot)))
+                  flash(ok ? 'Round link copied — same 10 levels, same order!' : 'Copy failed')
+                }}
+              >
+                Copy round link
+              </button>
             </div>
+            <p className="muted">Send friends the round link — they play the same levels in order, then start their own round from the summary.</p>
           </div>
         ) : screen === 'setup' ? (
           <>
@@ -552,6 +773,9 @@ export default function App() {
             <p className="muted">Packages and filters define the pool ({pool.length} / {GAMES.length} levels). Starting something new abandons a running round.</p>
             <div className="btnrow">
               <button onClick={() => setScreen('play')}>← Back to game</button>
+              {roundQueue !== null && (
+                <button onClick={exitRound}>Exit round to unlock filters</button>
+              )}
             </div>
         <div className="levels">
           {PACKAGES.map((p) => (
@@ -568,7 +792,7 @@ export default function App() {
           {([
             ['Genre', 'genres', GENRE_OPTIONS],
             ['Publisher', 'publishers', PUBLISHERS],
-            ['Platform', 'platforms', PLATFORMS],
+            ['Platform', 'platforms', PLATFORM_OPTIONS],
             ['Developer', 'developers', DEVELOPERS],
             ['Franchise', 'franchises', FRANCHISES],
           ] as Array<[string, FacetKey, string[]]>).map(([label, key, options]) => {
@@ -601,12 +825,12 @@ export default function App() {
             </details>
             )
           })}
-          <label>
+          <label title="Include homebrew and low-vote titles">
             <input
               type="checkbox" checked={filters.showNiche} disabled={roundQueue !== null}
               onChange={(e) => updateFilters({ showNiche: e.target.checked })}
             />{' '}
-            fan picks
+            niche picks
           </label>
           <label>
             From{' '}
@@ -640,6 +864,51 @@ export default function App() {
         {poolBase.length === 0 && (
           <p className="message">No games match{activePackage ? ` this package (${activePackage})` : ' these filters'} — widen the years or pick another genre/publisher/platform/developer/franchise.</p>
         )}
+        <div className="lists">
+          <h3>My lists</h3>
+          <p className="muted">Handpicked rounds for friends — played in order, shared with one link.</p>
+          <div className="btnrow">
+            <input
+              value={newListName}
+              onChange={(e) => setNewListName(e.target.value)}
+              placeholder="New list name…"
+            />
+            <button onClick={createList} disabled={newListName.trim() === ''}>Create list</button>
+          </div>
+          {lists.map((l) => (
+            <div key={l.name} className="listrow">
+              <strong>{l.name}</strong> <span className="muted">({l.ids.length} games)</span>{' '}
+              <button className="primary" onClick={() => playList(l)} disabled={l.ids.length === 0}>Play</button>{' '}
+              <button onClick={() => shareList(l)} disabled={l.ids.length === 0}>Share</button>{' '}
+              <button onClick={() => setEditingList((e) => (e === l.name ? null : l.name))}>
+                {editingList === l.name ? 'Done' : 'Edit'}
+              </button>{' '}
+              <button className="danger" onClick={() => deleteList(l.name)}>Delete</button>
+              {editingList === l.name && (
+                <>
+                  <div className="gamelist">
+                    {l.ids.map((id) => {
+                      const gm = getGame(id)
+                      if (!gm) return null
+                      return (
+                        <span key={id}>
+                          {gm.title} ({gm.year}){' '}
+                          <button onClick={() => removeFromList(l.name, id)}>x</button>
+                        </span>
+                      )
+                    })}
+                  </div>
+                  <input
+                    value={addQuery}
+                    onChange={(e) => setAddQuery(e.target.value)}
+                    placeholder="Type to add a game…"
+                  />
+                  <GuessSuggestions suggestions={addSuggestions} onPick={addToList} />
+                </>
+              )}
+            </div>
+          ))}
+        </div>
             <div className="btnrow">
               <button className="primary" onClick={startRound} disabled={pool.length === 0}>
                 Start round ({Math.min(ROUND_SIZE, pool.length)})
@@ -656,24 +925,24 @@ export default function App() {
             <button
               key={lvl.size}
               className={`chip ${i === levelIdx ? 'active' : ''} ${i <= maxLevel ? 'seen' : ''}`}
-              onClick={() => !finished && i <= maxLevel && setLevelIdx(i)}
-              disabled={finished || i > maxLevel}
-              title={`${levelLabel(lvl)} — ${lvl.points} pts`}
+              onClick={() => i <= maxLevel && setLevelIdx(i)}
+              disabled={i > maxLevel}
+              title={`${gridLabel(lvl.size, shotAspect)} — ${lvl.points} pts`}
             >
-              {levelLabel(lvl)} · {lvl.points}
+              {gridLabel(lvl.size, shotAspect)} · {lvl.points}
             </button>
           ))}
         </div>
 
-        <PixelCanvas key={game.id} srcs={shotsFor(game)} startAt={shotPos} resolution={LEVELS[levelIdx].size} seed={game.id} />
+        <PixelCanvas key={game.id} srcs={shotsFor(game)} startAt={shotPos} resolution={LEVELS[levelIdx].size} seed={game.id} onShow={(idx) => shotHistRef.current.set(gameId, idx)} onAspect={setShotAspect} />
         <div className="meta">
-          <span>Level: <strong>{levelLabel(LEVELS[levelIdx])}</strong></span>
+          <span>Level: <strong>{gridLabel(LEVELS[levelIdx].size, shotAspect)}</strong></span>
           <span>Worth: <strong>{points} pts</strong></span>
           <span className="muted">Attempts: {attempts}</span>
         </div>
 
         {!finished ? (
-          <>
+          <div className="guesswrap">
           <form
             className="guessrow"
             onSubmit={(e) => {
@@ -697,7 +966,7 @@ export default function App() {
             </button>
           </form>
           <GuessSuggestions suggestions={guessSuggestions} onPick={setGuess} />
-          </>
+          </div>
         ) : (
           <div className="result">
             {solved ? (
@@ -724,7 +993,7 @@ export default function App() {
               <button
                 className="primary"
                 onClick={async () => {
-                  const ok = await copyText(shareLink(game.id))
+                  const ok = await copyText(shareLink(game.id, sharePool, viewedShot(game.id)))
                   flash(ok ? 'Challenge link copied — paste it anywhere!' : 'Copy failed')
                 }}
               >
@@ -734,7 +1003,7 @@ export default function App() {
                 <button
                   onClick={async () => {
                     const earned = earnedPoints(maxLevel, hintStage)
-                    const ok = await copyText(discordResultText(game, maxLevel, earned))
+                    const ok = await copyText(discordResultText(game, maxLevel, earned, sharePool, viewedShot(game.id)))
                     flash(ok ? 'Result copied — paste it anywhere!' : 'Copy failed')
                   }}
                 >
@@ -743,7 +1012,7 @@ export default function App() {
               ) : !finished && (
                 <button
                   onClick={async () => {
-                    const ok = await copyText(discordChallengeText(game, maxLevel, points))
+                    const ok = await copyText(discordChallengeText(game, maxLevel, points, sharePool, viewedShot(game.id)))
                     flash(ok ? 'Challenge copied — paste it anywhere!' : 'Copy failed')
                   }}
                 >
@@ -770,13 +1039,12 @@ export default function App() {
         )}
 
         {message && <p className="message">{message}</p>}
-        {toast && <div className="toast">{toast}</div>}
 
         {!finished && (
           <div className="btnrow">
             <button
               onClick={async () => {
-                const ok = await copyText(shareLink(game.id))
+                const ok = await copyText(shareLink(game.id, sharePool, viewedShot(game.id)))
                 flash(ok ? 'Challenge link copied — paste it anywhere!' : 'Copy failed')
               }}
             >
@@ -798,35 +1066,10 @@ export default function App() {
             <li>Near answers count: <em>“gta 5”</em> solves Grand Theft Auto V, <em>“botw”</em> solves Breath of the Wild, typos included. Vague names fit several games — then you get asked which one exactly.</li>
             <li><strong>Hints:</strong> first hint reveals the release year, second the title shape. Each halves your points (min 10).</li>
             <li><strong>Rounds:</strong> set genre / publisher / platform / year filters, then “Start round” plays 10 random levels from that pool. The summary lets you share any single game and copy the round result as text.</li>
-            <li><strong>Sharing:</strong> “Copy challenge link” copies a link like <code>?game=3fa9c1e</code>. Paste it anywhere (Discord, chat, mail) — anyone opening it plays the exact same level. Stuck mid-game? “Copy challenge as text” shares your current level without spoiling the title. After solving, “Copy result” gives you a message with your score to paste back so everyone can compare.</li>
+            <li><strong>Sharing:</strong> “Copy challenge link” copies a link like <code>?game=3fa9c1e</code> — level plus your current pool (package, years, filters), so a friend's “next random” stays in your universe. Paste it anywhere (Discord, chat, mail). Stuck mid-game? “Copy challenge as text” shares your current level without spoiling the title. After solving, “Copy result” gives you a message with your score to paste back so everyone can compare.</li>
           </ul>
         </details>
 
-        <div className="browser">
-          <label>🔎 Game list (spelling aid){' '}
-            <input
-              value={browserQuery}
-              onChange={(e) => setBrowserQuery(e.target.value)}
-              placeholder={`Search all ${GAMES.length} titles…`}
-            />
-          </label>
-          {browserQuery.trim() === '' ? (
-            <p className="muted">Type above to search every title (spoilers!). Click one to put it in the guess box.</p>
-          ) : browserHits.total === 0 ? (
-            <p className="message">No titles match “{browserQuery.trim()}”.</p>
-          ) : (
-            <>
-              <p className="muted">Showing {browserHits.shown.length} of {browserHits.total} matches — click to fill the guess box.</p>
-              <div className="gamelist">
-                {browserHits.shown.map((x) => (
-                  <button key={x.id} onClick={() => setGuess(x.title)}>
-                    {x.title} <span className="muted">({x.year})</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
           </>
         )}
       </main>
@@ -846,6 +1089,7 @@ export default function App() {
           </ul>
         </details>
       </footer>
+      {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }
