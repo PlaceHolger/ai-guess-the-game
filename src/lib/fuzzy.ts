@@ -24,11 +24,13 @@ const EDITION_WORDS = new Set([
 
 /**
  * Token-level containment: needle appears as a contiguous run inside hay.
- * Non-final needle tokens must match exactly; the final one may be a mere
- * prefix ("tetr" → "tetris"). Numerals always match exactly, even as
- * prefixes — "ii" is not "iii" (Rogue Squadron II ≠ III).
+ * Prefix flexibility applies ONLY when the needle is the player's guess
+ * (typed prefix: "tetr" → "tetris"). A catalog candidate inside a longer
+ * guess must match whole tokens — otherwise short alias "king" would match
+ * guess word "kingdom" and every Zelda guess would fit King's Quest.
+ * Numerals always match exactly, even as prefixes ("ii" ≠ "iii").
  */
-function tokenIncludes(hay: string[], needle: string[]): boolean {
+export function tokenIncludes(hay: string[], needle: string[], guessIsNeedle: boolean): boolean {
   outer: for (let i = 0; i + needle.length <= hay.length; i++) {
     for (let j = 0; j < needle.length; j++) {
       const n = needle[j]
@@ -36,7 +38,7 @@ function tokenIncludes(hay: string[], needle: string[]): boolean {
       const last = j === needle.length - 1
       if (/^\d+$/.test(n) || /^\d+$/.test(h)) {
         if (n !== h) continue outer
-      } else if (last ? !h.startsWith(n) : h !== n) {
+      } else if (last ? !(guessIsNeedle ? h.startsWith(n) : h === n) : h !== n) {
         continue outer
       }
     }
@@ -137,7 +139,7 @@ export function checkGuess(rawGuess: string, game: GameEntry): GuessResult {
     if (minLen >= 4) {
       const gt = normTokens(guess)
       const ct = normTokens(c)
-      if (tokenIncludes(ct, gt) || tokenIncludes(gt, ct)) {
+      if (tokenIncludes(ct, gt, true) || tokenIncludes(gt, ct, false)) {
         return { correct: true, close: true, matchedVia: cand }
       }
     }
@@ -157,11 +159,22 @@ export function checkGuess(rawGuess: string, game: GameEntry): GuessResult {
     // wrong for Risen 3, not close). Candidates under 4 chars ("elma")
     // only count on exact/substring/token rules — never on typos, where
     // they magnetize unrelated guesses ("zelda" is 2 edits from "elma").
+    // Numerals decide identity ("gothic 4" is Arcania, never Gothic 3):
+    // when both sides carry numerals and they differ, typos don't solve.
     if (c.length < 4) continue
     const d = levenshtein(guess, c)
     const t = typoThreshold(Math.max(guess.length, c.length))
     if (d <= t) {
-      return { correct: true, close: true, matchedVia: cand }
+      const numSet = (s: string) => new Set(normTokens(s).filter((x) => /^\d+$/.test(x)))
+      const gn = numSet(guess)
+      const cn = numSet(c)
+      const sameNumerals =
+        gn.size === 0 ||
+        cn.size === 0 ||
+        (gn.size === cn.size && [...gn].every((x) => cn.has(x)))
+      if (sameNumerals) {
+        return { correct: true, close: true, matchedVia: cand }
+      }
     }
     if (d <= t + 2) close = true
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LEVELS, findSharedGame, gameCode, levelLabel, pointsForLevel, resolveShot, shotsFor, shuffle } from './game'
+import { LEVELS, earnedPoints, findSharedGame, gameCode, levelLabel, pointsForLevel, resolveShot, shotsFor, shuffle } from './game'
 import { GAMES } from '../data/games'
 import type { GameEntry } from '../data/games'
 
@@ -28,6 +28,15 @@ describe('levels', () => {
     expect(levelLabel({ size: 16, points: 250 })).toBe('16×16')
     expect(levelLabel({ size: 0, points: 20 })).toBe('Full')
     expect(pointsForLevel(99)).toBe(20)
+  })
+  it('earnedPoints halves per hint stage, floored at 10', () => {
+    expect(earnedPoints(0, 0)).toBe(1000)
+    expect(earnedPoints(0, 1)).toBe(500)
+    expect(earnedPoints(0, 2)).toBe(250)
+    expect(earnedPoints(6, 0)).toBe(20)
+    expect(earnedPoints(6, 1)).toBe(10)
+    expect(earnedPoints(6, 2)).toBe(10)
+    expect(earnedPoints(3, 2)).toBe(31)
   })
   it('shuffle keeps elements', () => {
     const arr = [g({ id: 'a' }), g({ id: 'b' }), g({ id: 'c' })]

@@ -42,15 +42,21 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, seed: string) {
 /**
  * Renders an image pixelated: downscale to `resolution`x`resolution`
  * then upscale with smoothing off. `resolution === 0` draws full quality.
- * Candidates are tried in order — a reviewer-deleted file falls through to
- * the next screenshot, then to the placeholder.
+ * Candidates are tried in rotation order starting at `startAt`, wrapping
+ * around — a deleted file falls through to the next screenshot, then to
+ * the placeholder. Each candidate gets one delayed retry so a transient
+ * CDN hiccup doesn't burn through good shots to the placeholder.
  */
 export default function PixelCanvas({ srcs, startAt, resolution, seed }: Props) {
   const ref = useRef<HTMLCanvasElement>(null)
-  const [attempt, setAttempt] = useState(startAt)
+  const [skip, setSkip] = useState(0)
+  const [retryTick, setRetryTick] = useState(0)
+  const retried = useRef(new Set<number>())
   const key = `${srcs.join('|')}@${startAt}@${resolution}`
   useEffect(() => {
-    setAttempt(startAt)
+    setSkip(0)
+    setRetryTick(0)
+    retried.current = new Set()
   }, [key, startAt])
 
   useEffect(() => {
@@ -61,11 +67,22 @@ export default function PixelCanvas({ srcs, startAt, resolution, seed }: Props) 
 
     ctx.imageSmoothingEnabled = resolution === 0
 
-    if (attempt >= srcs.length) {
+    if (skip >= srcs.length) {
       drawPlaceholder(ctx, seed)
       return
     }
-    const src = srcs[attempt]
+    const idx = (startAt + skip) % srcs.length
+    const src = srcs[idx]
+
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const onError = () => {
+      if (!retried.current.has(idx)) {
+        retried.current.add(idx)
+        timer = setTimeout(() => setRetryTick((t) => t + 1), 1200)
+      } else {
+        setSkip((s) => s + 1)
+      }
+    }
 
     if (resolution === 0) {
       const img = new Image()
@@ -75,8 +92,10 @@ export default function PixelCanvas({ srcs, startAt, resolution, seed }: Props) 
         ctx.clearRect(0, 0, W, H)
         ctx.drawImage(img, 0, 0, W, H)
       }
-      img.onerror = () => setAttempt((a) => a + 1)
-      return
+      img.onerror = onError
+      return () => {
+        if (timer) clearTimeout(timer)
+      }
     }
 
     const tiny = document.createElement('canvas')
@@ -108,8 +127,11 @@ export default function PixelCanvas({ srcs, startAt, resolution, seed }: Props) 
       ctx.clearRect(0, 0, W, H)
       ctx.drawImage(tiny, 0, 0, W, H)
     }
-    img.onerror = () => setAttempt((a) => a + 1)
-  }, [srcs, attempt, resolution, seed])
+    img.onerror = onError
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
+  }, [srcs, skip, startAt, resolution, seed, retryTick])
 
   return (
     <canvas

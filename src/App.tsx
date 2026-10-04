@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PixelCanvas from './components/PixelCanvas'
 import { GAMES, getGame } from './data/games'
-import { checkGuess, normalize, numeralsCovered, titleMask } from './lib/fuzzy'
+import { checkGuess, normalize, numeralsCovered, titleMask, tokenIncludes } from './lib/fuzzy'
 import {
   LEVELS,
   AFFILIATE_TAG,
   buyLinks,
   discordResultText,
   discordRoundText,
+  earnedPoints,
   findSharedGame,
   franchiseOf,
   isGerman,
   isPopular,
   levelLabel,
   loadScore,
-  pointsForLevel,
   randomFrom,
   randomGame,
   saveScore,
@@ -29,11 +29,10 @@ const PUBLISHERS = [...new Set(GAMES.map((g) => g.publisher))].sort()
 const PLATFORMS = [...new Set(GAMES.flatMap((g) => g.platforms))].sort()
 const DEVELOPERS = [...new Set(GAMES.map((g) => g.developer))].sort()
 const FRANCHISES = [...new Set(GAMES.map(franchiseOf).filter((f): f is string => f !== null))].sort()
-const GENRE_OPTIONS = ['All', 'RPG (all)', 'Shooter (all)', ...GENRES]
+const GENRE_OPTIONS = ['RPG (all)', 'Shooter (all)', ...GENRES]
 const YEAR_MIN = 1970
 const YEAR_MAX = 2026
 const ROUND_SIZE = 10
-const HINT_COST = 150
 
 interface RoundResult {
   solved: boolean
@@ -50,27 +49,29 @@ const DECADES: Array<[string, number, number]> = [
   ['20s', 2020, YEAR_MAX],
 ]
 
-function genreMatches(gameGenre: string, selected: string): boolean {
-  if (selected === 'All') return true
-  if (selected === 'RPG (all)') return /rpg|role-playing/i.test(gameGenre)
-  if (selected === 'Shooter (all)') return /shooter/i.test(gameGenre)
-  return gameGenre === selected
+function genreMatches(gameGenre: string, selected: string[]): boolean {
+  if (selected.length === 0) return true
+  return selected.some((s) => {
+    if (s === 'RPG (all)') return /rpg|role-playing/i.test(gameGenre)
+    if (s === 'Shooter (all)') return /shooter/i.test(gameGenre)
+    return gameGenre === s
+  })
 }
 
 interface Filters {
-  genre: string
-  publisher: string
-  platform: string
-  developer: string
-  franchise: string
+  genres: string[]
+  publishers: string[]
+  platforms: string[]
+  developers: string[]
+  franchises: string[]
   showNiche: boolean
   ymin: number
   ymax: number
 }
 
 const DEFAULT_FILTERS: Filters = {
-  genre: 'All', publisher: 'All', platform: 'All', developer: 'All',
-  franchise: 'All', showNiche: false, ymin: YEAR_MIN, ymax: YEAR_MAX,
+  genres: [], publishers: [], platforms: [], developers: [],
+  franchises: [], showNiche: false, ymin: YEAR_MIN, ymax: YEAR_MAX,
 }
 
 interface PackageDef {
@@ -82,18 +83,18 @@ interface PackageDef {
 // Themed packs: presets over the same filters (shareable, round-ready).
 // Niche titles live here rather than in the default pool.
 const PACKAGES: PackageDef[] = [
-  { label: 'Star Wars', patch: { franchise: 'Star Wars' } },
-  { label: 'Pokémon', patch: { franchise: 'Pokémon' } },
-  { label: 'Mario', patch: { franchise: 'Mario' } },
-  { label: 'Zelda', patch: { franchise: 'Zelda' } },
-  { label: 'Souls', patch: { franchise: 'Souls' } },
-  { label: 'N64', patch: { platform: 'N64' } },
-  { label: 'SNES', patch: { platform: 'SNES' } },
-  { label: 'DOS classics', patch: { platform: 'DOS' } },
-  { label: 'Sierra', patch: { publisher: 'Sierra' } },
-  { label: 'id Software', patch: { developer: 'id Software' } },
-  { label: 'Blizzard', patch: { publisher: 'Blizzard Entertainment' } },
-  { label: 'Nintendo 90s', patch: { publisher: 'Nintendo', ymin: 1990, ymax: 1999 } },
+  { label: 'Star Wars', patch: { franchises: ['Star Wars'] } },
+  { label: 'Pokémon', patch: { franchises: ['Pokémon'] } },
+  { label: 'Mario', patch: { franchises: ['Mario'] } },
+  { label: 'Zelda', patch: { franchises: ['Zelda'] } },
+  { label: 'Souls', patch: { franchises: ['Souls'] } },
+  { label: 'N64', patch: { platforms: ['N64'] } },
+  { label: 'SNES', patch: { platforms: ['SNES'] } },
+  { label: 'DOS classics', patch: { platforms: ['DOS'] } },
+  { label: 'Sierra', patch: { publishers: ['Sierra'] } },
+  { label: 'id Software', patch: { developers: ['id Software'] } },
+  { label: 'Blizzard', patch: { publishers: ['Blizzard Entertainment'] } },
+  { label: 'Nintendo 90s', patch: { publishers: ['Nintendo'], ymin: 1990, ymax: 1999 } },
   { label: 'Made in Germany', test: (g) => isGerman(g) },
   { label: 'CryEngine', test: (g) => g.engine === 'CryEngine' },
   { label: 'Unity', test: (g) => g.engine === 'Unity' },
@@ -105,7 +106,24 @@ const FILTER_KEY = 'gameguesser.filters'
 function loadFilters(): Filters {
   try {
     const raw = localStorage.getItem(FILTER_KEY)
-    if (raw) return { ...DEFAULT_FILTERS, ...JSON.parse(raw) }
+    if (raw) {
+      const saved = JSON.parse(raw) as Record<string, unknown>
+      // migrate legacy single-select strings (or 'All') to arrays
+      const arr = (v: unknown): string[] => {
+        if (Array.isArray(v)) return v.filter((x): x is string => typeof x === 'string')
+        if (typeof v === 'string' && v !== 'All') return [v]
+        return []
+      }
+      return {
+        ...DEFAULT_FILTERS,
+        ...saved,
+        genres: arr(saved.genre ?? saved.genres),
+        publishers: arr(saved.publisher ?? saved.publishers),
+        platforms: arr(saved.platform ?? saved.platforms),
+        developers: arr(saved.developer ?? saved.developers),
+        franchises: arr(saved.franchise ?? saved.franchises),
+      }
+    }
   } catch {
     // ignore
   }
@@ -138,7 +156,7 @@ export default function App() {
   const [guess, setGuess] = useState('')
   const [attempts, setAttempts] = useState(0)
   const [wrongs, setWrongs] = useState(0)
-  const [hintUsed, setHintUsed] = useState(false)
+  const [hintStage, setHintStage] = useState(0)
   const [solved, setSolved] = useState(false)
   const [gaveUp, setGaveUp] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -153,6 +171,14 @@ export default function App() {
   const [roundQueue, setRoundQueue] = useState<string[] | null>(null)
   const [roundResults, setRoundResults] = useState<Record<string, RoundResult>>({})
   const [showSummary, setShowSummary] = useState(false)
+  // setup screen (packages + filters) vs play screen (game only)
+  const [screen, setScreen] = useState<'setup' | 'play'>('play')
+  // per-facet search boxes (500+ publishers/developers need filtering)
+  const [facetQuery, setFacetQuery] = useState<Record<FacetKey, string>>({
+    genres: '', publishers: '', platforms: '', developers: '', franchises: '',
+  })
+  // spelling-aid browser: search across all titles, click fills the guess box
+  const [browserQuery, setBrowserQuery] = useState('')
   // session no-repeat + random screenshot per appearance (shared links: primary)
   const seenRef = useRef<Set<string>>(new Set([gameId]))
   const [shotPos, setShotPos] = useState(0)
@@ -162,11 +188,11 @@ export default function App() {
     () =>
       GAMES.filter(
         (g) =>
-          genreMatches(g.genre, filters.genre) &&
-          (filters.publisher === 'All' || g.publisher === filters.publisher) &&
-          (filters.platform === 'All' || g.platforms.includes(filters.platform)) &&
-          (filters.developer === 'All' || g.developer === filters.developer) &&
-          (filters.franchise === 'All' || franchiseOf(g) === filters.franchise) &&
+          genreMatches(g.genre, filters.genres) &&
+          (filters.publishers.length === 0 || filters.publishers.includes(g.publisher)) &&
+          (filters.platforms.length === 0 || g.platforms.some((p) => filters.platforms.includes(p))) &&
+          (filters.developers.length === 0 || filters.developers.includes(g.developer)) &&
+          (filters.franchises.length === 0 || filters.franchises.includes(franchiseOf(g) ?? '')) &&
           (filters.showNiche || isPopular(g)) &&
           g.year >= filters.ymin &&
           g.year <= filters.ymax,
@@ -179,6 +205,14 @@ export default function App() {
     [filtered, activePkg],
   )
   const pool = poolBase.length > 0 ? poolBase : filtered.length > 0 ? filtered : GAMES
+  const browserHits = useMemo(() => {
+    const q = normalize(browserQuery.trim())
+    if (!q) return { total: 0, shown: [] as GameEntry[] }
+    const hits = GAMES.filter(
+      (x) => normalize(x.title).includes(q) || x.aliases.some((a) => normalize(a).includes(q)),
+    )
+    return { total: hits.length, shown: hits.slice(0, 100) }
+  }, [browserQuery])
   const roundSolved = Object.values(roundResults).filter((r) => r.solved).length
   const roundPoints = Object.values(roundResults).reduce((s, r) => s + r.points, 0)
   const hardestTitle: string | undefined = (() => {
@@ -196,7 +230,7 @@ export default function App() {
     [game.id],
   )
   const finished = solved || gaveUp
-  const points = pointsForLevel(maxLevel)
+  const points = earnedPoints(maxLevel, hintStage)
 
   const pickGame = useCallback(
     (id: string) => {
@@ -206,7 +240,7 @@ export default function App() {
       setGuess('')
       setAttempts(0)
       setWrongs(0)
-      setHintUsed(false)
+      setHintStage(0)
       setSolved(false)
       setGaveUp(false)
       setMessage(null)
@@ -226,6 +260,15 @@ export default function App() {
 
   const updateFilters = useCallback((patch: Partial<Filters>) => {
     setFilters((f) => ({ ...f, ...patch }))
+    setActivePackage(null)
+  }, [])
+
+  type FacetKey = 'genres' | 'publishers' | 'platforms' | 'developers' | 'franchises'
+  const toggleFilter = useCallback((key: FacetKey, value: string) => {
+    setFilters((f) => {
+      const cur = f[key]
+      return { ...f, [key]: cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value] }
+    })
     setActivePackage(null)
   }, [])
 
@@ -249,6 +292,7 @@ export default function App() {
     setRoundQueue(ids)
     setRoundResults({})
     setShowSummary(false)
+    setScreen('play')
     pickGame(ids[0])
   }, [pool, pickGame])
 
@@ -268,6 +312,7 @@ export default function App() {
 
   const giveUp = useCallback(() => {
     setGaveUp(true)
+    setLevelIdx(LEVELS.length - 1)
     setMessage(null)
     if (roundQueue !== null) {
       setRoundResults((r) => ({ ...r, [game.id]: { solved: false, points: 0, level: levelLabel(LEVELS[maxLevel]) } }))
@@ -321,44 +366,92 @@ export default function App() {
         if (others.length > 0) {
           const names = [game, ...others].slice(0, 4).map((g) => g.title).join(' · ')
           setAttempts((a) => a + 1)
-          setMessage(`🔎 Almost — that fits several games (${names}). Which one exactly?`)
+          setMessage(`🔎 Almost — your guess fits several games (${names}). Which one exactly?`)
           return
         }
       }
       setSolved(true)
-      const pts = Math.max(10, pointsForLevel(maxLevel) - (hintUsed ? HINT_COST : 0))
+      setLevelIdx(LEVELS.length - 1)
+      const pts = earnedPoints(maxLevel, hintStage)
       const lvl = levelLabel(LEVELS[maxLevel])
       setScore((s) => ({ total: s.total + pts, solved: s.solved + 1 }))
       if (roundQueue !== null) {
         setRoundResults((r) => ({ ...r, [game.id]: { solved: true, points: pts, level: lvl } }))
       }
-      setMessage(`✅ Correct! ${game.title} (${game.year}) — +${pts} pts at ${lvl}${hintUsed ? ` (incl. −${HINT_COST} hint)` : ''}.`)
-    } else if (res.close) {
-      setAttempts((a) => a + 1)
-      setMessage('🔥 Close! Try again — check spelling / full title.')
+      setMessage(`✅ Correct! ${game.title} (${game.year}) — +${pts} pts at ${lvl}${hintStage > 0 ? ` (after ${hintStage} hint${hintStage > 1 ? 's' : ''})` : ''}.`)
     } else {
-      // outright wrong: count it, and every 2nd wrong guess reveals more
-      // pixels automatically (anti-stall; the points drop covers the help)
-      const w = wrongs + 1
-      setWrongs(w)
-      setAttempts((a) => a + 1)
-      if (w >= 2 && levelIdx < LEVELS.length - 1) {
-        const n = Math.min(levelIdx + 1, LEVELS.length - 1)
-        setLevelIdx(n)
-        setMaxLevel((m) => Math.max(m, n))
-        setWrongs(0)
-        setMessage('❌ Nope — revealing more pixels for you.')
+      // The guess fits one or more OTHER games: a single rival redirects
+      // ("gothic 4" while Gothic 3 is shown means Arcania), several ask.
+      // Rivals must cover the guess's numerals, same as in the solve path.
+      const gnorm = normalize(guess)
+      const others = GAMES.filter(
+        (o) => o.id !== game.id && checkGuess(guess, o).correct && numeralsCovered(guess, o),
+      )
+      if (others.length === 1) {
+        const other = others[0]
+        const fr = franchiseOf(other)
+        const note =
+          other.developer === game.developer
+            ? ` — same developer (${game.developer})`
+            : fr && fr === franchiseOf(game)
+              ? ` — same ${fr} universe`
+              : other.publisher === game.publisher
+                ? ` — also ${game.publisher}`
+                : ''
+        setAttempts((a) => a + 1)
+        setMessage(`🎯 "${guess.trim()}" is ${other.title} (${other.year})${note} — but that's not this level!`)
+        return
+      }
+      if (others.length > 1) {
+        const names = others.slice(0, 4).map((x) => x.title).join(' · ')
+        setAttempts((a) => a + 1)
+        setMessage(`❌ Nope — "${guess.trim()}" could mean several games (${names}), but this level is none of them!`)
+        return
+      }
+      // Naming the credits ("daedalic" for a Daedalic game): confirm the
+      // developer / publisher without giving away the game.
+      const guessTokens = gnorm.split(' ').filter(Boolean)
+      const known = (s: string) => s && !/^unknown$/i.test(s)
+      const creditHit =
+        known(game.developer) &&
+        tokenIncludes(normalize(game.developer).split(' ').filter(Boolean), guessTokens, true)
+          ? `developer (${game.developer})`
+          : known(game.publisher) &&
+              tokenIncludes(normalize(game.publisher).split(' ').filter(Boolean), guessTokens, true)
+            ? `publisher (${game.publisher})`
+            : null
+      if (creditHit) {
+        setAttempts((a) => a + 1)
+        setMessage(`🔍 Close — right ${creditHit}, but which game?`)
+        return
+      }
+      if (res.close) {
+        setAttempts((a) => a + 1)
+        setMessage('🔥 Close! Try again — check spelling / full title.')
       } else {
-        setMessage('❌ Nope, try again or reveal more pixels (fewer points).')
+        // outright wrong: count it, and every 2nd wrong guess reveals more
+        // pixels automatically (anti-stall; the points drop covers the help)
+        const w = wrongs + 1
+        setWrongs(w)
+        setAttempts((a) => a + 1)
+        if (w >= 2 && levelIdx < LEVELS.length - 1) {
+          const n = Math.min(levelIdx + 1, LEVELS.length - 1)
+          setLevelIdx(n)
+          setMaxLevel((m) => Math.max(m, n))
+          setWrongs(0)
+          setMessage('❌ Nope — revealing more pixels for you.')
+        } else {
+          setMessage('❌ Nope, try again or reveal more pixels (fewer points).')
+        }
       }
     }
-  }, [finished, guess, game, maxLevel, roundQueue, wrongs, levelIdx, hintUsed])
+  }, [finished, guess, game, maxLevel, roundQueue, wrongs, levelIdx, hintStage])
 
   const takeHint = useCallback(() => {
-    if (finished || hintUsed) return
-    setHintUsed(true)
+    if (finished || hintStage >= 2) return
+    setHintStage((s) => s + 1)
     setMessage(null)
-  }, [finished, hintUsed])
+  }, [finished, hintStage])
 
   const revealMore = useCallback(() => {
     if (finished) return
@@ -385,6 +478,7 @@ export default function App() {
         <div className="score">
           <div><strong>{total}</strong> pts</div>
           <div className="muted">{solvedCount} solved</div>
+          <button onClick={() => setScreen('setup')}>⚙ New game</button>
         </div>
       </header>
 
@@ -438,11 +532,16 @@ export default function App() {
                 Copy round result as text
               </button>
               <button onClick={startRound}>New round</button>
-              <button onClick={exitRound}>Free play</button>
+              <button onClick={() => { exitRound(); pickGame(nextFreePick()) }}>Free play</button>
             </div>
           </div>
-        ) : (
+        ) : screen === 'setup' ? (
           <>
+            <h2>⚙ New game</h2>
+            <p className="muted">Packages and filters define the pool ({pool.length} / {GAMES.length} levels). Starting something new abandons a running round.</p>
+            <div className="btnrow">
+              <button onClick={() => setScreen('play')}>← Back to game</button>
+            </div>
         <div className="levels">
           {PACKAGES.map((p) => (
             <button
@@ -455,50 +554,42 @@ export default function App() {
           ))}
         </div>
         <div className="filters">
-          <label>
-            Genre{' '}
-            <select value={filters.genre} disabled={roundQueue !== null} onChange={(e) => updateFilters({ genre: e.target.value })}>
-              {GENRE_OPTIONS.map((g) => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Publisher{' '}
-            <select value={filters.publisher} disabled={roundQueue !== null} onChange={(e) => updateFilters({ publisher: e.target.value })}>
-              <option value="All">All</option>
-              {PUBLISHERS.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Platform{' '}
-            <select value={filters.platform} disabled={roundQueue !== null} onChange={(e) => updateFilters({ platform: e.target.value })}>
-              <option value="All">All</option>
-              {PLATFORMS.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Developer{' '}
-            <select value={filters.developer} disabled={roundQueue !== null} onChange={(e) => updateFilters({ developer: e.target.value })}>
-              <option value="All">All</option>
-              {DEVELOPERS.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Franchise{' '}
-            <select value={filters.franchise} disabled={roundQueue !== null} onChange={(e) => updateFilters({ franchise: e.target.value })}>
-              <option value="All">All</option>
-              {FRANCHISES.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </label>
+          {([
+            ['Genre', 'genres', GENRE_OPTIONS],
+            ['Publisher', 'publishers', PUBLISHERS],
+            ['Platform', 'platforms', PLATFORMS],
+            ['Developer', 'developers', DEVELOPERS],
+            ['Franchise', 'franchises', FRANCHISES],
+          ] as Array<[string, FacetKey, string[]]>).map(([label, key, options]) => {
+            const q = facetQuery[key].trim().toLowerCase()
+            const sel = filters[key]
+            const rest = options.filter((o) => !sel.includes(o) && (q === '' || o.toLowerCase().includes(q)))
+            const visible = [...sel, ...rest]
+            return (
+            <details className="facet" key={key}>
+              <summary>{label}{sel.length > 0 && ` (${sel.length})`}</summary>
+              <div className="facetlist">
+                {options.length > 10 && (
+                  <input
+                    placeholder={`Filter ${options.length}…`}
+                    value={facetQuery[key]}
+                    onChange={(e) => setFacetQuery((fq) => ({ ...fq, [key]: e.target.value }))}
+                  />
+                )}
+                {visible.map((o) => (
+                  <label key={o}>
+                    <input
+                      type="checkbox" checked={sel.includes(o)} disabled={roundQueue !== null}
+                      onChange={() => toggleFilter(key, o)}
+                    />{' '}
+                    {o}
+                  </label>
+                ))}
+                {visible.length === 0 && <span className="muted">No match.</span>}
+              </div>
+            </details>
+            )
+          })}
           <label>
             <input
               type="checkbox" checked={filters.showNiche} disabled={roundQueue !== null}
@@ -521,9 +612,6 @@ export default function App() {
             />
           </label>
           <button onClick={() => { setFilters(DEFAULT_FILTERS); setActivePackage(null) }} disabled={roundQueue !== null}>Reset</button>
-          <button className="primary" onClick={startRound} disabled={pool.length === 0}>
-            Start round ({Math.min(ROUND_SIZE, pool.length)})
-          </button>
           <span className="muted">{pool.length} / {GAMES.length} levels{activePackage ? ` · 📦 ${activePackage}` : ''}{roundQueue !== null ? ' · locked in round' : ''}</span>
         </div>
         <div className="levels">
@@ -541,6 +629,17 @@ export default function App() {
         {poolBase.length === 0 && (
           <p className="message">No games match{activePackage ? ` this package (${activePackage})` : ' these filters'} — widen the years or pick another genre/publisher/platform/developer/franchise.</p>
         )}
+            <div className="btnrow">
+              <button className="primary" onClick={startRound} disabled={pool.length === 0}>
+                Start round ({Math.min(ROUND_SIZE, pool.length)})
+              </button>
+              <button onClick={() => { exitRound(); pickGame(nextFreePick()); setScreen('play') }}>
+                Start free play
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
         <div className="levels">
           {LEVELS.map((lvl, i) => (
             <button
@@ -580,8 +679,8 @@ export default function App() {
             <button type="button" onClick={revealMore} disabled={levelIdx >= LEVELS.length - 1}>
               Reveal more (−pts)
             </button>
-            <button type="button" onClick={takeHint} disabled={hintUsed} title={`Show title shape (${HINT_COST} pts)`}>
-              Hint (−{HINT_COST})
+            <button type="button" onClick={takeHint} disabled={hintStage >= 2} title={hintStage === 0 ? 'Reveal the release year (halves points)' : 'Reveal the title shape (halves points again)'}>
+              {hintStage === 0 ? 'Hint: year (−50%)' : hintStage === 1 ? 'Hint: title (−50%)' : 'Hints used'}
             </button>
           </form>
         ) : (
@@ -619,7 +718,7 @@ export default function App() {
               {solved && (
                 <button
                   onClick={async () => {
-                    const earned = Math.max(10, pointsForLevel(maxLevel) - (hintUsed ? HINT_COST : 0))
+                    const earned = earnedPoints(maxLevel, hintStage)
                     const ok = await copyText(discordResultText(game, maxLevel, earned))
                     flash(ok ? 'Result copied — paste it anywhere!' : 'Copy failed')
                   }}
@@ -642,8 +741,8 @@ export default function App() {
           </div>
         )}
 
-        {hintUsed && !finished && (
-          <p className="message">🔤 Title shape: <code>{titleMask(game.title)}</code></p>
+        {hintStage >= 1 && !finished && (
+          <p className="message">📅 Release year: <strong>{game.year}</strong>{hintStage >= 2 && (<> · 🔤 Title shape: <code>{titleMask(game.title)}</code></>)}</p>
         )}
 
         {message && <p className="message">{message}</p>}
@@ -672,22 +771,38 @@ export default function App() {
           <summary>How scoring & sharing works</summary>
           <ul>
             <li>Each level is one game. You start at <strong>4×4</strong> ({LEVELS[0].points} pts). Every reveal halves the points down to full image.</li>
-            <li>Near answers count: <em>“final fantasy”</em> is accepted for <em>Final Fantasy VII</em>, typos and aliases like <em>gta 5</em> too.</li>
+            <li>Near answers count: <em>“gta 5”</em> solves Grand Theft Auto V, <em>“botw”</em> solves Breath of the Wild, typos included. Vague names fit several games — then you get asked which one exactly.</li>
+            <li><strong>Hints:</strong> first hint reveals the release year, second the title shape. Each halves your points (min 10).</li>
             <li><strong>Rounds:</strong> set genre / publisher / platform / year filters, then “Start round” plays 10 random levels from that pool. The summary lets you share any single game and copy the round result as text.</li>
             <li><strong>Sharing:</strong> “Copy challenge link” copies a link like <code>?game=3fa9c1e</code>. Paste it anywhere (Discord, chat, mail) — anyone opening it plays the exact same level. After solving, “Copy result” gives you a message with your score to paste back so everyone can compare.</li>
           </ul>
         </details>
 
-        <details className="games">
-          <summary>Levels in view: {pool.length} (spoilers!)</summary>
-          <div className="gamelist">
-            {pool.map((g) => (
-              <button key={g.id} className={g.id === game.id ? 'active' : ''} onClick={() => { if (roundQueue !== null) exitRound(); pickGame(g.id) }}>
-                {g.title} <span className="muted">({g.year}, {g.genre})</span>
-              </button>
-            ))}
-          </div>
-        </details>
+        <div className="browser">
+          <label>🔎 Game list (spelling aid){' '}
+            <input
+              value={browserQuery}
+              onChange={(e) => setBrowserQuery(e.target.value)}
+              placeholder={`Search all ${GAMES.length} titles…`}
+            />
+          </label>
+          {browserQuery.trim() === '' ? (
+            <p className="muted">Type above to search every title (spoilers!). Click one to put it in the guess box.</p>
+          ) : browserHits.total === 0 ? (
+            <p className="message">No titles match “{browserQuery.trim()}”.</p>
+          ) : (
+            <>
+              <p className="muted">Showing {browserHits.shown.length} of {browserHits.total} matches — click to fill the guess box.</p>
+              <div className="gamelist">
+                {browserHits.shown.map((x) => (
+                  <button key={x.id} onClick={() => setGuess(x.title)}>
+                    {x.title} <span className="muted">({x.year})</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
           </>
         )}
       </main>

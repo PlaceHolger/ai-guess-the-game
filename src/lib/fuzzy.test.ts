@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { checkGuess, isMoreSpecific, normalize, numeralsCovered, titleMask } from './fuzzy'
+import { checkGuess, isMoreSpecific, normalize, numeralsCovered, titleMask, tokenIncludes } from './fuzzy'
+import { GAMES, getGame } from '../data/games'
 import type { GameEntry } from '../data/games'
 
 const g = (id: string, title: string, aliases: string[] = []): GameEntry => ({
@@ -43,6 +44,16 @@ describe('checkGuess basics', () => {
   })
   it('accepts prefix typing', () => {
     expect(checkGuess('tetr', g('tetris', 'Tetris')).correct).toBe(true)
+  })
+  it('short alias "king" does not match inside "kingdom" (Zelda ≠ King\'s Quest)', () => {
+    const kq2 = g('kq2', "King's Quest II: Romancing the Throne", ['kq2', 'king', "king's quest 2"])
+    const kq3 = g('kq3', "King's Quest III: To Heir is Human", ['kq3', 'king', "king's quest 3"])
+    const totk = g('totk', 'The Legend of Zelda: Tears of the Kingdom', ['zelda totk', 'totk'])
+    expect(checkGuess('zelda tears of the kingdom', kq2).correct).toBe(false)
+    expect(checkGuess('zelda tears of the kingdom', kq3).correct).toBe(false)
+    expect(checkGuess('zelda tears of the kingdom', totk).correct).toBe(true)
+    expect(checkGuess('king', kq2).correct).toBe(true)
+    expect(checkGuess('kingdom', kq2).correct).toBe(false)
   })
   it('edition words are never load-bearing', () => {
     const hitman = g('hitman-goty', 'Hitman: Game of the Year Edition', [])
@@ -112,5 +123,45 @@ describe('titleMask', () => {
   it('masks letters/digits, keeps structure', () => {
     expect(titleMask('Silent Hill 4: The Room')).toBe('______ ____ _: ___ ____')
     expect(titleMask("God of War Ragnarök")).toBe('___ __ ___ ________')
+  })
+})
+
+describe('credit matching (developer/publisher nudges)', () => {
+  const toks = (s: string) => normalize(s).split(' ').filter(Boolean)
+  it('dev names match by token run, prefix allowed on the typed side', () => {
+    expect(tokenIncludes(toks('Daedalic Entertainment'), toks('daedalic'), true)).toBe(true)
+    expect(tokenIncludes(toks('Daedalic Entertainment'), toks('daedal'), true)).toBe(true)
+    expect(tokenIncludes(toks('Piranha Bytes'), toks('bytes'), true)).toBe(true)
+    expect(tokenIncludes(toks('id Software'), toks('soft'), true)).toBe(true)
+    expect(tokenIncludes(toks('Rare'), toks('rarely'), true)).toBe(false)
+    expect(tokenIncludes(toks('Sierra On-Line'), toks('online'), true)).toBe(false)
+  })
+})
+
+describe('regional & short names (real pool)', () => {
+  const fits = (guess: string) =>
+    GAMES.filter((o) => checkGuess(guess, o).correct && numeralsCovered(guess, o)).map((o) => o.id)
+  it('"gta 5" and "botw" solve exactly one game each', () => {
+    expect(fits('gta 5')).toEqual(['gta-v'])
+    expect(fits('botw')).toEqual(['breath-of-the-wild'])
+  })
+  it('"biohazard" reaches Resident Evil (ambiguity across the series is fine)', () => {
+    expect(checkGuess('biohazard', getGame('resident-evil')!).correct).toBe(true)
+    expect(fits('biohazard')).toContain('resident-evil')
+  })
+  it('german "siedler" reaches the Settlers games', () => {
+    const ids = fits('die siedler')
+    expect(ids.length).toBeGreaterThan(0)
+    expect(ids.every((id) => /settler|serf-city/i.test(id))).toBe(true)
+  })
+  it('"final fantasy" is genuinely ambiguous these days (help example retired)', () => {
+    expect(fits('final fantasy').length).toBeGreaterThan(5)
+  })
+  it('"gothic 4" means Arcania — never Gothic 3 (numerals are typo-immune)', () => {
+    expect(checkGuess('gothic 4', getGame('arcania-gothic-4')!).correct).toBe(true)
+    const g3 = checkGuess('gothic 4', getGame('gothic-3')!)
+    expect(g3.correct).toBe(false)
+    expect(g3.close).toBe(true)
+    expect(fits('gothic 4')).toEqual(['arcania-gothic-4'])
   })
 })

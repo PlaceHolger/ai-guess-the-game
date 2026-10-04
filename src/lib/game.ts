@@ -25,6 +25,12 @@ export function pointsForLevel(idx: number): number {
   return LEVELS[Math.min(idx, LEVELS.length - 1)].points
 }
 
+/** Points after hint stages: each of the two hints (year, then title shape)
+ *  halves the level points, floored at 10 so a late hint never zeroes you. */
+export function earnedPoints(levelIdx: number, hintStage: number): number {
+  return Math.max(10, Math.floor(pointsForLevel(levelIdx) / 2 ** hintStage))
+}
+
 export function randomGame(excludeId?: string): GameEntry {
   return randomFrom(GAMES, excludeId)
 }

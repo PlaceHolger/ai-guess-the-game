@@ -5,28 +5,31 @@
 Yes. Dev servers run on **http://localhost:5173/** and **http://localhost:5174/**
 (both watch the same files — if behavior looks stale, hard-refresh with
 Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
-`npm run test` (31 vitest cases) and `npm run build` pass;
+`npm run test` (39 vitest cases) and `npm run build` pass;
 `node scripts/audit.mjs` is the data health check.
 
 ## What works
 
-- **Core loop**: pixelated screenshot (4×4 → full), fuzzy guessing with
-  typo/alias/regional-title tolerance, ambiguity prompts ("🔎 Almost — …,
-  which one?"), close-guess feedback, title-shape hint (−150), auto-reveal
-  every 2nd wrong guess, decreasing points, no-repeat sessions.
+- **Core loop**: pixelated screenshot (4x4 to full), fuzzy guessing with
+  typo/alias/regional-title tolerance, ambiguity prompts, close-guess
+  feedback, wrong-game redirects ("That is Risen - same developer!"),
+  developer/publisher nudges, two-step hints (year, then title shape,
+  each halving points), auto-reveal every 2nd wrong guess, full-res on
+  solve/give-up, no-repeat sessions. Setup screen holds packages+filters;
+  play shows only the game. Full searchable game list as spelling aid.
 - **Rounds**: 10 games from the filtered pool, summary with per-game scores,
   single-game share links, copyable round result.
 - **Sharing**: level links (`?game=` short hash, no title spoiler),
   paste-ready result/round messages as text, OG tags for unfurls
   (needs public https host — see OPERATIONS §6).
-- **Filters**: genre (incl. RPG/Shooter groups), publisher, developer,
-  platform, franchise, years + decades, mainstream-only default with
-  *fan picks* toggle, 17 📦 package presets (Star Wars, N64, Sierra,
+- **Filters**: multi-select facets (genre incl. RPG/Shooter groups, publisher,
+  developer, platform, franchise), years + decades, mainstream-only default
+  with *fan picks* toggle, 17 package presets (Star Wars, N64, Sierra,
   Made in Germany, engines…).
 - **Result card**: genre/publisher/developer/platforms, Metacritic (where
   known, ~600 scores via RAWG), Amazon + MobyGames links (affiliate-ready,
   tag empty), footer Sources & credits (IGDB, libretro; RAWG row still open).
-- **Pool**: ~1,500 levels (202 hand-curated TSV + ~1,300 bulk + custom),
+- **Pool**: ~1,510 levels (202 hand-curated TSV + ~1,310 bulk + custom),
   1976–2026, 80+ platforms. Every entry hotlinks IGDB CDN shots
   (100% remote coverage, hand remotes live in the TSV); local files are
   fallback-only, paths are deploy-base-relative. Health:
@@ -39,9 +42,13 @@ Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
 ## What's NOT done / known gaps
 
 - **Screenshot content review**: ~1,300 images unreviewed by a human (covers,
-  wrong games, DLC shots). Minecraft entry is 2016-dated,
-  Arkham Knight skin matched once — review via `audit --year XXXX`.
+  wrong games, DLC shots). Fixed this round: Duke3D Game.com photos, Doom
+  1993 showing 2016 shots, Doom II listed twice. Minecraft entry is
+  2016-dated, Arkham Knight skin matched once — review via `audit --year XXXX`.
   (Fallout now shows FO1 CDN shots; Larry/AC1/Journey play via CDN remotes.)
+- **Deck13 batch added**: Ankh 1, Jack Keane 2, Blood Knights, Black Sails:
+  The Ghost Ship, Haunted (all default-visible). "Tiger & Chicken" is not
+  in IGDB — needs year/platform or alternate spelling to add.
 - **Crysis 1** missing (no clean Crytek Frankfurt entity in IGDB).
 - **~20 unreleased-2026 placeholders** kept deliberately — verify on release.
 - **RAWG credits row** in footer not yet added (do with any RAWG display change).

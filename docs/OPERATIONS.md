@@ -32,16 +32,18 @@ screenshots come later (§4). Production build: `npm run build` (output `dist/`)
   droppable** (`…: Biohazard` never required). A partial match fitting
   several games asks *which one* ("🔎 Almost — …"); a guess naming the
   distinction (`silent hill 4`, `gothic 2` = `gothic ii`) solves at once.
-- **Filters** (genre / publisher / developer / platform / franchise / years +
-  decade chips) define the pool for free play and rounds. **Packages** (📦 row:
+- **Filters** are multi-select facets (genre / publisher / developer /
+  platform / franchise — OR within a facet) plus years +
+  decade chips. They define the pool for free play and rounds. **Packages** (📦 row:
   Star Wars, N64, Sierra, Made in Germany, …) are one-click presets over the
   same filters. The default pool is **mainstream only** — tick *fan picks* to
   include niche/homebrew levels. Choices persist in localStorage.
 - Each appearance shows a **random screenshot** of the level (primary +
   alternates rotate for variety); shared links always open the primary shot.
 - **Start round** plays 10 random levels from the filtered pool, then shows a
-  summary with per-game scores. Stuck? A **Hint** button reveals the title
-  shape (`______ ____`) for −150 pts, and every 2nd wrong guess auto-reveals
+  summary with per-game scores. Stuck? Two **Hint** steps: release year
+  first, then the title shape (`______ ____`) — each halves your points
+  (min 10). Every 2nd wrong guess auto-reveals
   the next resolution (points drop accordingly).
 - **Sharing is link-based, no SDK.** *Copy challenge link* copies an
   opaque `?game=` link (short hash, not the title — no spoilers in chat).
@@ -251,7 +253,7 @@ No server component, no env vars, no database. Share links are plain URLs.
   `X / N levels` updates; *fan picks* toggle changes the pool size.
 - Round: 10 games → summary totals → per-game share links → round result text.
   Replay a round: screenshots vary (rotation), games don't repeat in a session.
-  Hints: title-shape button (−150 pts), auto-reveal every 2nd wrong guess.
+  Hints: year first, then title shape (each −50%, min 10 pts), auto-reveal every 2nd wrong guess.
 - Share: open a `?game=` link in a fresh tab/private window — exact level,
   banner shown. Paste result text into Discord — formatting intact.
 - After data changes: `npm run fetch:screenshots -- --list` count matches
