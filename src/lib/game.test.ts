@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { LEVELS, earnedPoints, findSharedGame, gameCode, levelLabel, pointsForLevel, resolveShot, shotsFor, shuffle } from './game'
+import { describe, expect, it, beforeEach } from 'vitest'
+import { LEVELS, discordChallengeText, discordResultText, earnedPoints, findSharedGame, gameCode, levelLabel, pointsForLevel, resolveShot, shotsFor, shuffle } from './game'
 import { GAMES } from '../data/games'
 import type { GameEntry } from '../data/games'
 
@@ -63,6 +63,24 @@ describe('shot URLs', () => {
         expect(s.startsWith('http') || s.includes('screenshots/'), game.id).toBe(true)
       }
     }
+  })
+})
+
+describe('share texts', () => {
+  beforeEach(() => {
+    ;(globalThis as any).window = { location: new URL('http://localhost:5174/') }
+  })
+  it('result text names the game, challenge text never does', () => {
+    const game = g({ id: 'tetris', title: 'Tetris', year: 1984 })
+    const result = discordResultText(game, 2, 250)
+    expect(result).toContain('Tetris')
+    expect(result).toContain('16×16')
+    expect(result).toContain('?game=')
+    const challenge = discordChallengeText(game, 2, 250)
+    expect(challenge).toContain('16×16')
+    expect(challenge).toContain('?game=')
+    expect(challenge).not.toContain('Tetris')
+    expect(challenge).not.toContain('1984')
   })
 })
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PixelCanvas from './components/PixelCanvas'
+import GuessSuggestions from './components/GuessSuggestions'
 import { GAMES, getGame } from './data/games'
 import { checkGuess, normalize, numeralsCovered, titleMask, tokenIncludes } from './lib/fuzzy'
 import {
@@ -7,6 +8,7 @@ import {
   AFFILIATE_TAG,
   buyLinks,
   discordResultText,
+  discordChallengeText,
   discordRoundText,
   earnedPoints,
   findSharedGame,
@@ -231,6 +233,15 @@ export default function App() {
   )
   const finished = solved || gaveUp
   const points = earnedPoints(maxLevel, hintStage)
+  // Guess autocomplete: suggestions only, submit stays free-text (the fuzzy
+  // matcher still handles typos and regional names the list can't spell).
+  const guessSuggestions = useMemo(() => {
+    const q = normalize(guess.trim())
+    if (q.length < 2 || finished) return [] as GameEntry[]
+    return GAMES.filter(
+      (x) => normalize(x.title).includes(q) || x.aliases.some((a) => normalize(a).includes(q)),
+    ).slice(0, 8)
+  }, [guess, finished])
 
   const pickGame = useCallback(
     (id: string) => {
@@ -484,7 +495,7 @@ export default function App() {
 
       {isShared && (
         <div className="banner">
-          🔗 Shared challenge: <strong>{game.title}</strong>? No spoilers — guess first, then forward it!
+          🔗 Shared challenge — no spoilers, guess first, then forward it!
         </div>
       )}
 
@@ -662,6 +673,7 @@ export default function App() {
         </div>
 
         {!finished ? (
+          <>
           <form
             className="guessrow"
             onSubmit={(e) => {
@@ -672,8 +684,9 @@ export default function App() {
             <input
               value={guess}
               onChange={(e) => setGuess(e.target.value)}
-              placeholder="Which game is this? e.g. Final Fantasy"
+              placeholder="Which game is this?"
               autoFocus
+              autoComplete="off"
             />
             <button type="submit" className="primary">Guess</button>
             <button type="button" onClick={revealMore} disabled={levelIdx >= LEVELS.length - 1}>
@@ -683,6 +696,8 @@ export default function App() {
               {hintStage === 0 ? 'Hint: year (−50%)' : hintStage === 1 ? 'Hint: title (−50%)' : 'Hints used'}
             </button>
           </form>
+          <GuessSuggestions suggestions={guessSuggestions} onPick={setGuess} />
+          </>
         ) : (
           <div className="result">
             {solved ? (
@@ -715,7 +730,7 @@ export default function App() {
               >
                 Copy challenge link
               </button>
-              {solved && (
+              {solved ? (
                 <button
                   onClick={async () => {
                     const earned = earnedPoints(maxLevel, hintStage)
@@ -724,6 +739,15 @@ export default function App() {
                   }}
                 >
                   Copy result as text
+                </button>
+              ) : !finished && (
+                <button
+                  onClick={async () => {
+                    const ok = await copyText(discordChallengeText(game, maxLevel, points))
+                    flash(ok ? 'Challenge copied — paste it anywhere!' : 'Copy failed')
+                  }}
+                >
+                  Copy challenge as text
                 </button>
               )}
               {roundQueue !== null ? (
@@ -774,7 +798,7 @@ export default function App() {
             <li>Near answers count: <em>“gta 5”</em> solves Grand Theft Auto V, <em>“botw”</em> solves Breath of the Wild, typos included. Vague names fit several games — then you get asked which one exactly.</li>
             <li><strong>Hints:</strong> first hint reveals the release year, second the title shape. Each halves your points (min 10).</li>
             <li><strong>Rounds:</strong> set genre / publisher / platform / year filters, then “Start round” plays 10 random levels from that pool. The summary lets you share any single game and copy the round result as text.</li>
-            <li><strong>Sharing:</strong> “Copy challenge link” copies a link like <code>?game=3fa9c1e</code>. Paste it anywhere (Discord, chat, mail) — anyone opening it plays the exact same level. After solving, “Copy result” gives you a message with your score to paste back so everyone can compare.</li>
+            <li><strong>Sharing:</strong> “Copy challenge link” copies a link like <code>?game=3fa9c1e</code>. Paste it anywhere (Discord, chat, mail) — anyone opening it plays the exact same level. Stuck mid-game? “Copy challenge as text” shares your current level without spoiling the title. After solving, “Copy result” gives you a message with your score to paste back so everyone can compare.</li>
           </ul>
         </details>
 

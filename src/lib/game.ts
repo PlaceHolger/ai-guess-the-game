@@ -210,6 +210,15 @@ export function discordResultText(game: GameEntry, levelIdx: number, points: num
   )
 }
 
+/** Mid-game challenge text: current level and worth, but never the title. */
+export function discordChallengeText(game: GameEntry, levelIdx: number, points: number): string {
+  const lvl = LEVELS[levelIdx]
+  return (
+    `🎮 **Guess the Game** — I'm stuck at **${levelLabel(lvl)}** ` +
+    `(worth **${points} pts**), can you beat me? ${shareLink(game.id)}`
+  )
+}
+
 const SCORE_KEY = 'gameguesser.totalScore'
 const SOLVED_KEY = 'gameguesser.solvedCount'
 

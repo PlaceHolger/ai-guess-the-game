@@ -20,6 +20,14 @@ function hueFor(seed: string): number {
   return h
 }
 
+function drawLoading(ctx: CanvasRenderingContext2D) {
+  ctx.fillStyle = '#12101f'
+  ctx.fillRect(0, 0, W, H)
+  ctx.fillStyle = 'rgba(255,255,255,0.7)'
+  ctx.font = 'bold 22px sans-serif'
+  ctx.fillText('LOADING…', 24, 40)
+}
+
 function drawPlaceholder(ctx: CanvasRenderingContext2D, seed: string) {
   const hue = hueFor(seed)
   const grad = ctx.createLinearGradient(0, 0, W, H)
@@ -73,6 +81,7 @@ export default function PixelCanvas({ srcs, startAt, resolution, seed }: Props) 
     }
     const idx = (startAt + skip) % srcs.length
     const src = srcs[idx]
+    drawLoading(ctx)
 
     let timer: ReturnType<typeof setTimeout> | undefined
     const onError = () => {
