@@ -2,7 +2,7 @@
 // Runs automatically before dev/build (predev/prebuild). Fails loudly on bad
 // rows so spreadsheet edits can't silently corrupt the pool.
 // TSV columns:
-//   id  title  year  genre  publisher  developer  platforms  aliases  igdbQuery  screenshot  altScreenshots
+//   id  title  year  genre  publisher  developer  platforms  aliases  igdbQuery  screenshot  altScreenshots  metacritic  remote  remoteAlts
 // Lists use | separators: platforms "SNES|Wii", aliases "smw|mario world".
 // Empty igdbQuery / altScreenshots allowed. No tabs or newlines inside fields.
 // Spreadsheet tips: open as UTF-8, tab-delimited; keep the year column as text;
@@ -14,7 +14,7 @@ import path from 'node:path'
 const ROOT = path.resolve(process.cwd())
 const TSV = path.join(ROOT, 'src', 'data', 'games.tsv')
 const OUT = path.join(ROOT, 'src', 'data', 'games.hand.ts')
-const COLS = ['id', 'title', 'year', 'genre', 'publisher', 'developer', 'platforms', 'aliases', 'igdbQuery', 'screenshot', 'altScreenshots', 'metacritic']
+const COLS = ['id', 'title', 'year', 'genre', 'publisher', 'developer', 'platforms', 'aliases', 'igdbQuery', 'screenshot', 'altScreenshots', 'metacritic', 'remote', 'remoteAlts']
 
 // quote a TS string literal, preferring single quotes like the rest of the codebase
 function q(s) {
@@ -26,9 +26,9 @@ function q(s) {
 export function parseTsv(text) {
   const lines = text.replace(/^\uFEFF/, '').split('\n')
   let header = (lines.shift() ?? '').split('\t')
-  // metacritic column is optional in existing sheets (added on first MC backfill)
-  if (header.length === COLS.length - 1 && header.join('\t') === COLS.slice(0, -1).join('\t')) {
-    header = [...header, 'metacritic']
+  // metacritic / remote columns are optional in existing sheets (added on first backfill)
+  for (const legacy of [COLS.slice(0, 11), COLS.slice(0, 12)]) {
+    if (header.join('\t') === legacy.join('\t')) header = [...header, ...COLS.slice(header.length)]
   }
   if (header.join('\t') !== COLS.join('\t')) {
     throw new Error(`bad TSV header:\n  got:      ${header.join('|')}\n  expected: ${COLS.join('|')}`)
@@ -37,7 +37,8 @@ export function parseTsv(text) {
   lines.forEach((line, i) => {
     if (!line.trim()) return
     const cells = line.split('\t')
-    if (cells.length === COLS.length - 1) cells.push('') // pre-metacritic sheet
+    while (cells.length < COLS.length - 2) cells.push('') // pre-metacritic sheet
+    while (cells.length < COLS.length) cells.push('') // pre-remote sheet
     if (cells.length !== COLS.length) {
       throw new Error(`line ${i + 2}: ${cells.length} cells, expected ${COLS.length}`)
     }
@@ -53,6 +54,7 @@ export function parseTsv(text) {
     if (!r.platforms.length) throw new Error(`line ${i + 2} (${r.id}): need at least one platform`)
     r.aliases = r.aliases.split('|').map((s) => s.trim()).filter(Boolean)
     r.altScreenshots = r.altScreenshots.split('|').map((s) => s.trim()).filter(Boolean)
+    r.remoteAlts = (r.remoteAlts ?? '').split('|').map((s) => s.trim()).filter(Boolean)
     if (r.metacritic && !/^\d{1,3}$/.test(r.metacritic)) throw new Error(`line ${i + 2} (${r.id}): bad metacritic "${r.metacritic}"`)
     r.line = i + 2
     rows.push(r)
@@ -77,6 +79,8 @@ export function emitTs(rows) {
       parts.push(`screenshot: ${q(r.screenshot)}`)
       if (r.altScreenshots.length) parts.push(`altScreenshots: [${r.altScreenshots.map(q).join(', ')}]`)
       if (r.metacritic) parts.push(`metacritic: ${r.metacritic}`)
+      if (r.remote) parts.push(`remote: ${q(r.remote)}`)
+      if (r.remoteAlts.length) parts.push(`remoteAlts: [${r.remoteAlts.map(q).join(', ')}]`)
       return `  { ${parts.join(', ')} },`
     })
     .join('\n')

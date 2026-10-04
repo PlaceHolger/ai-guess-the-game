@@ -93,7 +93,7 @@ function readFileSyncCache(p) {
 }
 
 async function setAlts(file, id, alts) {
-  // alts: ["/screenshots/<year>/<id>-2.jpg", ...] — replace or insert altScreenshots
+  // alts: ["screenshots/<year>/<id>-2.jpg", ...] — replace or insert altScreenshots
   let t = await readFile(file, 'utf8')
   const arr = `[${alts.map((a) => `'${a}'`).join(', ')}]`
   const re = new RegExp(`(\\{[^{}]*?(?:id:\\s*'${id}'|"id"\\s*:\\s*"${id}")[^{}]*?)"?altScreenshots"?\\s*:\\s*\\[[^\\]]*\\]`)
@@ -141,7 +141,7 @@ async function main() {
     const needed = []
     for (let i = 0; i < maxShots; i++) {
       const dest = path.join(dir, altName(g.id, i, ext))
-      if (!existsSync(dest)) needed.push({ slot: i, dest, rel: `/screenshots/${g.year}/${altName(g.id, i, ext)}` })
+      if (!existsSync(dest)) needed.push({ slot: i, dest, rel: `screenshots/${g.year}/${altName(g.id, i, ext)}` })
     }
     // move legacy flat downloads into place
     const legacy = path.join(OUT_DIR, `${g.id}.jpg`)
@@ -178,7 +178,7 @@ async function main() {
         const altRels = []
         for (let i = 1; i < maxShots; i++) {
           const p = path.join(dir, altName(g.id, i, ext))
-          if (existsSync(p)) altRels.push(`/screenshots/${g.year}/${altName(g.id, i, ext)}`)
+          if (existsSync(p)) altRels.push(`screenshots/${g.year}/${altName(g.id, i, ext)}`)
         }
         if (altRels.length) {
           const src = entryFile(g.id)

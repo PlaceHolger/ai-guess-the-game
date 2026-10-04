@@ -10,7 +10,7 @@ Germany), hit **Start round** — you get 10 random levels from that pool, then
 a summary with per-game scores. The default pool is **mainstream only**
 (`popular` flag: hand list always, bulk entries by IGDB votes); tick
 *fan picks* to include niche/homebrew titles. From the summary you can share
-any single game (`?game=<id>` link) or copy the whole round result to Discord.
+any single game (`?game=` link) or copy the whole round result as text.
 
 ## Quick start
 
@@ -19,14 +19,16 @@ npm install
 npm run dev
 ```
 
-Playable immediately — without screenshots it shows generated placeholder art so you can
-test the flow. Add real screenshots (below) for the actual game.
+Playable immediately — every level hotlinks its screenshots from the IGDB
+CDN at runtime, so no download step is needed. (Generated placeholder art
+only appears if a CDN URL ever fails.)
 
 ## Screenshots (one-time fetch, your manual review)
 
 Bundling ~1,500 games' copyrighted screenshots in git would be a legal problem, so the repo ships
-**titles + metadata only** (fetch locally, gitignored). Get them via the legal API route (IGDB, which serves
-publisher-provided screenshots) and curate by hand:
+**titles + metadata + IGDB CDN hotlinks only** (no images, no keys).
+Local screenshot files (below) are optional — only needed for offline dev
+or visual review; the game loads CDN URLs first and ignores missing files:
 
 ```sh
 cp .env.example .env   # fill IGDB_CLIENT_ID / IGDB_CLIENT_SECRET from dev.twitch.tv/console

@@ -43,8 +43,8 @@ screenshots come later (§4). Production build: `npm run build` (output `dist/`)
   summary with per-game scores. Stuck? A **Hint** button reveals the title
   shape (`______ ____`) for −150 pts, and every 2nd wrong guess auto-reveals
   the next resolution (points drop accordingly).
-- **Discord sharing is link-based, no SDK.** *Share this level* copies a
-  `?game=<id>` URL — anyone opening it plays exactly that level. After solving,
+- **Sharing is link-based, no SDK.** *Copy challenge link* copies an
+  opaque `?game=` link (short hash, not the title — no spoilers in chat).
   *Copy result* gives a paste-ready score message for the channel. From a round
   summary you can share any single game plus the whole round result.
   Discord link unfurls need a **public https:// URL** (see §6).
@@ -97,7 +97,13 @@ The 201 curated entries live in `src/data/games.tsv` (UTF-8, tab-separated —
 opens in Excel/LibreOffice; keep the year column as text and save back as
 UTF-8 TSV). Columns:
 
-`id | title | year | genre | publisher | developer | platforms | aliases | igdbQuery | screenshot | altScreenshots`
+`id | title | year | genre | publisher | developer | platforms | aliases | igdbQuery | screenshot | altScreenshots | metacritic | remote | remoteAlts`
+
+Screenshot paths are relative (`screenshots/<year>/<id>.jpg`, no leading
+slash) and resolved against the deploy base at runtime, so GitHub Pages
+project URLs keep working. `remote`/`remoteAlts` hold the IGDB CDN hotlinks
+(`backfill-remote` writes them into the TSV for hand entries); the game
+loads remote shots first, local files second.
 
 Lists use `|` (`SNES|Wii`). Empty `aliases`/`igdbQuery`/`altScreenshots`
 allowed; empty genre/publisher/developer/platforms can stay empty and be
@@ -115,8 +121,13 @@ which game a fuzzy name means (*Lords of the Fallen* 2014 vs 2023).
 
 ## 4. Screenshots: sources and fetchers
 
-Screenshots are **never committed** (gitignored, local-only). Three fetchers,
-in order of preference:
+Screenshots are **never committed** (gitignored, local-only) and, since the
+hotlink switch, **not even hosted by us**: entries carry `remote` CDN URLs
+(`backfill-remote`), and the game loads those first, local files second,
+placeholder last. So the repo ships titles + metadata + URL strings only —
+no keys (scripts use your local `.env`), no images, nothing secret.
+
+Three fetchers, in order of preference:
 
 **a) IGDB (`npm run fetch:screenshots`)** — primary source, publisher-provided
 shots. Needs `.env` with `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` from
@@ -165,11 +176,19 @@ npm run audit -- --year 1990  # focus one year folder
 ```
 
 Open the year folders in Explorer (thumbnails view) and delete what fails:
-covers, logos, title screens, wrong games, broken files. **Deleting one bad
-screenshot is safe** — the game automatically falls through to the next
-alternate (`altScreenshots`), and only shows the placeholder when *all* shots
-of a level are gone. Then either re-fetch that id
-(`npm run fetch:screenshots -- <id>`) or drop the level entirely:
+covers, logos, title screens, wrong games, broken files. Then sync the
+entries to match what you kept:
+
+```sh
+npm run sync-shots --dry   # preview: promotes surviving alts, lists bare levels
+npm run sync-shots          # apply
+```
+
+Deleting one bad screenshot is safe — sync promotes the next surviving
+alternate to primary (or the game falls through at runtime), and only
+levels with *zero* surviving shots are reported (re-fetch that id with
+`npm run fetch:screenshots -- <id>`, or drop the level). Then drop levels
+entirely if needed:
 
 ```sh
 npm run remove -- --id <game>   # removes entry + screenshot (add --keep-shot to keep the file)

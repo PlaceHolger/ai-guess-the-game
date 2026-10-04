@@ -32,7 +32,10 @@ export interface GameEntry {
   engine?: string
   /** Metacritic score 0-100 when known (RAWG backfill, see docs) */
   metacritic?: number
-  /** relative URL under /screenshots/<year>/, e.g. "/screenshots/2022/elden-ring.jpg" */
+  /** canonical IGDB CDN shot (+ alts): hotlinked at runtime, no re-hosting */
+  remote?: string
+  remoteAlts?: string[]
+  /** relative path under screenshots/<year>/, e.g. "screenshots/2022/elden-ring.jpg" */
   screenshot: string
 }
 

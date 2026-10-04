@@ -95,7 +95,7 @@ async function main() {
     `publisher: ${q(a.publisher)}, developer: ${q(a.developer)}, platforms: [${platforms.map(q).join(', ')}], ` +
     `aliases: [${aliases.map(q).join(', ')}], ` +
     (a.igdbQuery ? `igdbQuery: ${q(a.igdbQuery)}, ` : '') +
-    `screenshot: '/screenshots/${a.year}/${a.id}${ext}' },`
+    `screenshot: 'screenshots/${a.year}/${a.id}${ext}' },`
 
   let text = await readFile(CUSTOM_FILE, 'utf8')
   const trimmed = text.trimEnd()

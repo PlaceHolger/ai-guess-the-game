@@ -245,7 +245,7 @@ function toEntry(g) {
     aliases: autoAliases(g.name),
     igdbQuery: g.name.replace(/"/g, ''),
     igdbId: g.id,
-    screenshot: `/screenshots/${year}/${g.slug}.jpg`,
+    screenshot: `screenshots/${year}/${g.slug}.jpg`,
     ...(franchise ? { franchise } : {}),
     ...(engine ? { engine } : {}),
     _shots: (g.screenshots ?? []).map((s) => ({ url: s.url, w: s.width ?? 0 })),

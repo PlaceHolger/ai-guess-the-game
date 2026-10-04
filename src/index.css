@@ -43,9 +43,9 @@ body {
 .chip.active { border-color: var(--accent); background: #33255f; }
 .chip.seen { opacity: .7; }
 .chip:disabled { cursor: default; }
-.meta { display: flex; gap: 16px; margin: 10px 2px; font-size: 14px; }
-.guessrow { display: flex; gap: 8px; margin-top: 12px; }
-.guessrow input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid #3b3358; background: #12101f; color: var(--text); font-size: 15px; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 2px; font-size: 14px; }
+.guessrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.guessrow input { flex: 1; min-width: 180px; padding: 10px 12px; border-radius: 10px; border: 1px solid #3b3358; background: #12101f; color: var(--text); font-size: 16px; }
 button { background: #2a2440; color: var(--text); border: none; border-radius: 10px; padding: 10px 14px; cursor: pointer; font-size: 14px; }
 button:hover:not(:disabled) { background: #372d5c; }
 button:disabled { opacity: .45; cursor: default; }
@@ -61,3 +61,13 @@ button.danger { background: #451a1a; }
 .gamelist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .gamelist button { font-size: 12px; padding: 6px 10px; }
 .gamelist button.active { outline: 2px solid var(--accent); }
+
+/* small screens: stack header, comfortable tap targets, no iOS input zoom */
+@media (max-width: 520px) {
+  .page { padding: 16px 10px 40px; }
+  .topbar { flex-wrap: wrap; }
+  .topbar h1 { font-size: 22px; }
+  .card { padding: 12px; }
+  button { padding: 12px 14px; }
+  .filters { font-size: 14px; }
+}

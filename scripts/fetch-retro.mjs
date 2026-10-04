@@ -139,11 +139,15 @@ function readFileSyncOrNull(p) {
 
 async function patchScreenshotPath(file, id, year, fromExt, toExt) {
   let t = await readFile(file, 'utf8')
-  const from = `/screenshots/${year}/${id}.${fromExt}`
-  const to = `/screenshots/${year}/${id}.${toExt}`
-  if (!t.includes(from)) return false
-  await writeFile(file, t.replace(from, to))
-  return true
+  // entries store relative paths now; still match legacy absolute ones
+  for (const prefix of ['screenshots/', '/screenshots/']) {
+    const from = `${prefix}${year}/${id}.${fromExt}`
+    if (t.includes(from)) {
+      await writeFile(file, t.replace(from, `${prefix}${year}/${id}.${toExt}`))
+      return true
+    }
+  }
+  return false
 }
 
 async function shotExistsLocally(year, id) {

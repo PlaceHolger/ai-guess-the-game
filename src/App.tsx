@@ -8,6 +8,7 @@ import {
   buyLinks,
   discordResultText,
   discordRoundText,
+  findSharedGame,
   franchiseOf,
   isGerman,
   isPopular,
@@ -130,7 +131,7 @@ async function copyText(text: string): Promise<boolean> {
 export default function App() {
   const [gameId, setGameId] = useState<string>(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('game')
-    return getGame(fromUrl)?.id ?? randomGame().id
+    return (fromUrl && findSharedGame(GAMES, fromUrl)?.id) ?? randomGame().id
   })
   const [levelIdx, setLevelIdx] = useState(0)
   const [maxLevel, setMaxLevel] = useState(0)
@@ -145,7 +146,10 @@ export default function App() {
   const [{ total, solved: solvedCount }, setScore] = useState(loadScore)
   const [filters, setFilters] = useState<Filters>(loadFilters)
   const [activePackage, setActivePackage] = useState<string | null>(null)
-  const [initialSharedId] = useState(() => new URLSearchParams(window.location.search).get('game'))
+  const [initialSharedId] = useState(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('game')
+    return (fromUrl && findSharedGame(GAMES, fromUrl)?.id) ?? null
+  })
   const [roundQueue, setRoundQueue] = useState<string[] | null>(null)
   const [roundResults, setRoundResults] = useState<Record<string, RoundResult>>({})
   const [showSummary, setShowSummary] = useState(false)
@@ -187,7 +191,8 @@ export default function App() {
     return [...rows].sort((a, b) => a.r.points - b.r.points)[0]?.title
   })()
   const isShared = useMemo(
-    () => new URLSearchParams(window.location.search).get('game') === game.id,
+    () => initialSharedId !== null && initialSharedId === game.id,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [game.id],
   )
   const finished = solved || gaveUp
@@ -413,7 +418,7 @@ export default function App() {
                     <button
                       onClick={async () => {
                         const ok = await copyText(shareLink(id))
-                        flash(ok ? 'Challenge link copied — share this game on Discord!' : 'Copy failed')
+                        flash(ok ? 'Challenge link copied — share it anywhere!' : 'Copy failed')
                       }}
                     >
                       Share this game
@@ -427,10 +432,10 @@ export default function App() {
                 className="primary"
                 onClick={async () => {
                   const ok = await copyText(discordRoundText(roundSolved, roundQueue.length, roundPoints, hardestTitle))
-                  flash(ok ? 'Round result copied — paste it in Discord!' : 'Copy failed')
+                  flash(ok ? 'Round result copied — paste it anywhere!' : 'Copy failed')
                 }}
               >
-                Copy round result for Discord
+                Copy round result as text
               </button>
               <button onClick={startRound}>New round</button>
               <button onClick={exitRound}>Free play</button>
@@ -606,20 +611,20 @@ export default function App() {
                 className="primary"
                 onClick={async () => {
                   const ok = await copyText(shareLink(game.id))
-                  flash(ok ? 'Challenge link copied — paste it in Discord!' : 'Copy failed')
+                  flash(ok ? 'Challenge link copied — paste it anywhere!' : 'Copy failed')
                 }}
               >
-                Share this level on Discord
+                Copy challenge link
               </button>
               {solved && (
                 <button
                   onClick={async () => {
                     const earned = Math.max(10, pointsForLevel(maxLevel) - (hintUsed ? HINT_COST : 0))
                     const ok = await copyText(discordResultText(game, maxLevel, earned))
-                    flash(ok ? 'Result copied — paste it in Discord!' : 'Copy failed')
+                    flash(ok ? 'Result copied — paste it anywhere!' : 'Copy failed')
                   }}
                 >
-                  Copy result for Discord
+                  Copy result as text
                 </button>
               )}
               {roundQueue !== null ? (
@@ -649,10 +654,10 @@ export default function App() {
             <button
               onClick={async () => {
                 const ok = await copyText(shareLink(game.id))
-                flash(ok ? 'Challenge link copied — paste it in Discord!' : 'Copy failed')
+                flash(ok ? 'Challenge link copied — paste it anywhere!' : 'Copy failed')
               }}
             >
-              Share this level on Discord
+              Copy challenge link
             </button>
             <button className="danger" onClick={giveUp}>
               Give up & reveal
@@ -664,12 +669,12 @@ export default function App() {
         )}
 
         <details className="how">
-          <summary>How scoring & Discord sharing works</summary>
+          <summary>How scoring & sharing works</summary>
           <ul>
             <li>Each level is one game. You start at <strong>4×4</strong> ({LEVELS[0].points} pts). Every reveal halves the points down to full image.</li>
             <li>Near answers count: <em>“final fantasy”</em> is accepted for <em>Final Fantasy VII</em>, typos and aliases like <em>gta 5</em> too.</li>
-            <li><strong>Rounds:</strong> set genre / publisher / platform / year filters, then “Start round” plays 10 random levels from that pool. The summary lets you share any single game and copy the round result to Discord.</li>
-            <li><strong>Discord:</strong> “Share this level” copies a link like <code>?game=elden-ring</code>. Paste it in a channel — anyone opening it plays the exact same level. After solving, “Copy result” gives you a message with your score to paste back so the channel can compare.</li>
+            <li><strong>Rounds:</strong> set genre / publisher / platform / year filters, then “Start round” plays 10 random levels from that pool. The summary lets you share any single game and copy the round result as text.</li>
+            <li><strong>Sharing:</strong> “Copy challenge link” copies a link like <code>?game=3fa9c1e</code>. Paste it anywhere (Discord, chat, mail) — anyone opening it plays the exact same level. After solving, “Copy result” gives you a message with your score to paste back so everyone can compare.</li>
           </ul>
         </details>
 

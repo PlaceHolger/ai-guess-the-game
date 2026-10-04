@@ -44,7 +44,7 @@ function groupByGame(disk, ids) {
 }
 
 async function compactAlts(id, keepRels) {
-  // keepRels: remaining "/screenshots/<year>/..." paths for slots >= 2
+  // keepRels: remaining "screenshots/<year>/..." paths for slots >= 2
   const { readFile, writeFile } = await import('node:fs/promises')
   const arr = `[${keepRels.map((a) => `'${a}'`).join(', ')}]`
   for (const f of ['games.hand.ts', 'games.ts', 'games.auto.ts', 'games.custom.ts']) {
@@ -155,7 +155,7 @@ async function main() {
       const y = yearOf(id)
       const keep = files
         .filter((f) => !gone.has(f.fp) && f.slot > 0)
-        .map((f) => `/screenshots/${y}/${path.basename(f.fp)}`)
+        .map((f) => `screenshots/${y}/${path.basename(f.fp)}`)
       if (y) {
         const where = await compactAlts(id, keep)
         console.log(`  deleted ${dups.length}, entry ${where ? 'updated' : 'not found?'}`)

@@ -5,7 +5,7 @@
 Yes. Dev servers run on **http://localhost:5173/** and **http://localhost:5174/**
 (both watch the same files — if behavior looks stale, hard-refresh with
 Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
-`npm run test` (25 vitest cases) and `npm run build` pass;
+`npm run test` (31 vitest cases) and `npm run build` pass;
 `node scripts/audit.mjs` is the data health check.
 
 ## What works
@@ -16,8 +16,9 @@ Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
   every 2nd wrong guess, decreasing points, no-repeat sessions.
 - **Rounds**: 10 games from the filtered pool, summary with per-game scores,
   single-game share links, copyable round result.
-- **Discord**: link sharing (`?game=`), paste-ready result/round messages,
-  OG tags for unfurls (needs public https host — see OPERATIONS §6).
+- **Sharing**: level links (`?game=` short hash, no title spoiler),
+  paste-ready result/round messages as text, OG tags for unfurls
+  (needs public https host — see OPERATIONS §6).
 - **Filters**: genre (incl. RPG/Shooter groups), publisher, developer,
   platform, franchise, years + decades, mainstream-only default with
   *fan picks* toggle, 17 📦 package presets (Star Wars, N64, Sierra,
@@ -26,9 +27,10 @@ Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
   known, ~600 scores via RAWG), Amazon + MobyGames links (affiliate-ready,
   tag empty), footer Sources & credits (IGDB, libretro; RAWG row still open).
 - **Pool**: ~1,500 levels (202 hand-curated TSV + ~1,300 bulk + custom),
-  1976–2026, 80+ platforms, screenshots in year folders with up to 3 shots
-  per level (rotation + fallback chain when files are deleted). Health:
-  0 orphans, 0 byte-dupes, ~600 Metacritic scores, regional aliases, 25/25 tests.
+  1976–2026, 80+ platforms. Every entry hotlinks IGDB CDN shots
+  (100% remote coverage, hand remotes live in the TSV); local files are
+  fallback-only, paths are deploy-base-relative. Health:
+  0 orphans, 0 byte-dupes, ~600 Metacritic scores, regional aliases, 31/31 tests.
 - **Tooling**: IGDB fetch (year-aware matcher), bulk import (year/company/
   platform/franchise/engine/enrich), Libretro retro fallback, add-custom,
   audit (missing/orphans/dupes/exotics), remove (single + bulk), backfills
@@ -37,19 +39,19 @@ Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
 ## What's NOT done / known gaps
 
 - **Screenshot content review**: ~1,300 images unreviewed by a human (covers,
-  wrong games, DLC shots). Fallout shows FO2, Minecraft entry is 2016-dated,
+  wrong games, DLC shots). Minecraft entry is 2016-dated,
   Arkham Knight skin matched once — review via `audit --year XXXX`.
-- **3 shot-less levels**: Leisure Suit Larry, Assassin's Creed 1, Journey
-  (no IGDB shots and no Libretro coverage — manual sourcing only).
+  (Fallout now shows FO1 CDN shots; Larry/AC1/Journey play via CDN remotes.)
 - **Crysis 1** missing (no clean Crytek Frankfurt entity in IGDB).
 - **~20 unreleased-2026 placeholders** kept deliberately — verify on release.
 - **RAWG credits row** in footer not yet added (do with any RAWG display change).
-- **No leaderboards**: score is per-browser + shared via Discord paste only.
+- **No leaderboards**: score is per-browser + shared via text paste only.
 - **No deploy yet**: `dist/` builds, but nothing is hosted publicly.
 
 ## Data safety notes
 
-- No git repo — no version control. A backup of `games.auto.ts` lives in the
-  temp folder from the exotic cleanup; screenshots are gitignored local-only.
+- Local repo initialized (2 commits, no remote yet). A backup of `games.auto.ts` lives in the
+  temp folder from the exotic cleanup; screenshots are gitignored local-only
+  (fallback — the game runs fully off CDN remotes without them).
 - Bulk scripts are idempotent (skip existing, dedup) except `remove`, which
   permanently deletes entries + files.

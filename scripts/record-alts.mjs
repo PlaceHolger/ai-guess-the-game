@@ -13,7 +13,7 @@ function altFiles(year, id) {
     for (const ext of ['jpg', 'png', 'webp']) {
       const rel = `${year}/${id}-${n}.${ext}`
       if (existsSync(path.join(OUT_DIR, rel))) {
-        out.push(`/screenshots/${rel}`)
+        out.push(`screenshots/${rel}`)
         break
       }
     }

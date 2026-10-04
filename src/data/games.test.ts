@@ -14,7 +14,7 @@ describe('catalog integrity', () => {
       expect(g.year, `${g.id} year`).toBeGreaterThanOrEqual(1970)
       expect(g.year, `${g.id} year`).toBeLessThanOrEqual(2026)
       expect(g.platforms.length, `${g.id} platforms`).toBeGreaterThan(0)
-      expect(g.screenshot, `${g.id} screenshot`).toMatch(/^\/screenshots\/\d+\//)
+      expect(g.screenshot, `${g.id} screenshot`).toMatch(/^(?:\/)?screenshots\/\d+\//)
     }
   })
   it('no two entries share an IGDB id (same game twice)', () => {

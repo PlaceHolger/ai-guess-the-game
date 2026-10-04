@@ -38,13 +38,52 @@ export function randomFrom(pool: GameEntry[], excludeId?: string): GameEntry {
 /** Shareable link that opens exactly one level. */
 export function shareLink(gameId: string): string {
   const url = new URL(window.location.href)
-  url.searchParams.set('game', gameId)
+  url.searchParams.set('game', gameCode(gameId))
   return url.toString()
 }
 
-/** All usable shots for a game: primary first, then review alternates. */
+/** Stable short code per level (7 hex chars from the id hash). Opaque in
+ *  chat so the answer isn't readable; immune to pool reordering (unlike a
+ *  numeric index). Not encryption — just anti-spoiler. Plain ids still load.
+ */
+export function gameCode(id: string): string {
+  let h1 = 0xdeadbeef
+  let h2 = 0x41c6ce57
+  for (let i = 0; i < id.length; i++) {
+    const ch = id.charCodeAt(i)
+    h1 = Math.imul(h1 ^ ch, 2654435761)
+    h2 = Math.imul(h2 ^ ch, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).slice(-7)
+}
+
+/** Resolve a share code (or legacy plain id) against the pool. */
+export function findSharedGame(games: GameEntry[], code: string): GameEntry | undefined {
+  const hit = games.find((g) => gameCode(g.id) === code.toLowerCase())
+  if (hit) return hit
+  return games.find((g) => g.id === code)
+}
+
+/** Base-aware URL for a shot: remote CDN URLs pass through untouched, local
+ *  `screenshots/<year>/...` paths resolve against the deploy base so the
+ *  game also works under project-page URLs (e.g. /user/repo/). Accepts
+ *  legacy absolute (`/screenshots/...`) entries too. */
+export function resolveShot(src: string): string {
+  if (/^https?:\/\//.test(src)) return src
+  const base: string = (import.meta.env?.BASE_URL as string | undefined) ?? '/'
+  return base + src.replace(/^\//, '')
+}
+
+/** All usable shots for a game: remote CDN first (no re-hosting), then local
+ *  files (offline dev), then review alternates in the same order. */
 export function shotsFor(game: GameEntry): string[] {
-  return [game.screenshot, ...(game.altScreenshots ?? [])]
+  const shots = [game.remote ?? game.screenshot]
+  if (game.remote && game.screenshot !== game.remote) shots.push(game.screenshot)
+  for (const a of game.remoteAlts ?? []) if (!shots.includes(a)) shots.push(a)
+  for (const a of game.altScreenshots ?? []) if (!shots.includes(a)) shots.push(a)
+  return shots.map(resolveShot)
 }
 
 /** Hand-curated German studios (publisher or developer match). */
