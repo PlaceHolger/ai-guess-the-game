@@ -1,4 +1,4 @@
-# GameGuesser — guess popular games from pixelated screenshots
+# Guess the Game — guess popular games from pixelated screenshots
 
 Start at **4×4 pixels** (1000 pts). Don't know it? Reveal **8×8 → 16×16 → 32×32 → 64×64 → 96×96 → full**
 for 500 / 250 / 125 / 60 / 40 / 20 pts. Near answers count: `final fantasy` is accepted for
@@ -24,8 +24,8 @@ test the flow. Add real screenshots (below) for the actual game.
 
 ## Screenshots (one-time fetch, your manual review)
 
-Bundling ~200 copyrighted screenshots in git would be a legal problem, so the repo ships
-**titles + metadata only**. Fetch them once via the legal API route (IGDB, which serves
+Bundling ~1,500 games' copyrighted screenshots in git would be a legal problem, so the repo ships
+**titles + metadata only** (fetch locally, gitignored). Get them via the legal API route (IGDB, which serves
 publisher-provided screenshots) and curate by hand:
 
 ```sh
@@ -105,7 +105,7 @@ You chose **external web + link** instead of the Discord Embedded App SDK, so:
    anyone opening it plays **exactly that level** (`?game=` is read on load, with a
    “Shared challenge” banner).
 3. After solving, **“Copy result for Discord”** copies e.g.
-   `🎮 GameGuesser — I guessed Elden Ring (2022) at 16×16 for 250 pts! …` — paste it
+   `🎮 Guess the Game — I guessed Elden Ring (2022) at 16×16 for 250 pts! …` — paste it
    back so the channel can compare scores.
 
 No bot, no SDK, no OAuth. If you later want in-client leaderboards / `shareMoment`,

@@ -149,7 +149,7 @@ export function shuffle<T>(arr: T[]): T[] {
 export function discordRoundText(solved: number, totalGames: number, points: number, hardest?: string): string {
   const base = window.location.origin + window.location.pathname
   return (
-    `🎮 **GameGuesser** — round result: **${solved}/${totalGames}** solved, **${points} pts**!` +
+    `🎮 **Guess the Game** — round result: **${solved}/${totalGames}** solved, **${points} pts**!` +
     (hardest ? ` Toughest: **${hardest}**.` : '') +
     ` Start your own round: ${base}`
   )
@@ -159,7 +159,7 @@ export function discordRoundText(solved: number, totalGames: number, points: num
 export function discordResultText(game: GameEntry, levelIdx: number, points: number): string {
   const lvl = LEVELS[levelIdx]
   return (
-    `🎮 **GameGuesser** — I guessed **${game.title} (${game.year})** ` +
+    `🎮 **Guess the Game** — I guessed **${game.title} (${game.year})** ` +
     `at **${levelLabel(lvl)}** for **${points} pts**! ` +
     `Can you beat me? ${shareLink(game.id)}`
   )

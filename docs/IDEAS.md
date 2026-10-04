@@ -1,4 +1,4 @@
-# GameGuesser — Future Ideas (parking lot, roughly by value/effort)
+# Guess the Game — Future Ideas (parking lot, roughly by value/effort)
 
 ## Gameplay
 - **Local round history + personal bests** (localStorage): date, filters,

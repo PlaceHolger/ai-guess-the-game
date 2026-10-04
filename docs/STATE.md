@@ -1,4 +1,4 @@
-# GameGuesser — Current State (as of 2026-10-04)
+# Guess the Game — Current State (as of 2026-10-04)
 
 ## Can I test it right now?
 

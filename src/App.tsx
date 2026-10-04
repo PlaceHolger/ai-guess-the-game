@@ -374,7 +374,7 @@ export default function App() {
     <div className="page">
       <header className="topbar">
         <div>
-          <h1>🎮 GameGuesser</h1>
+          <h1>🎮 Guess the Game</h1>
           <p className="sub">Guess the game from pixels. Start at 4×4 — reveal more, score less.</p>
         </div>
         <div className="score">

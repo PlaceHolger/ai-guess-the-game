@@ -1,4 +1,4 @@
-# GameGuesser — Operations Manual
+# Guess the Game — Operations Manual
 
 How to run, extend, fetch, deploy and test the game. Start here for anything
 beyond playing.
