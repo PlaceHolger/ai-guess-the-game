@@ -123,29 +123,65 @@ export interface NormEntry {
   game: GameEntry
   title: string
   aliases: string[]
+  rawAliases: string[]
 }
 const normCache = new WeakMap<GameEntry[], NormEntry[]>()
 export function normalizedEntries(games: GameEntry[]): NormEntry[] {
   let e = normCache.get(games)
   if (!e) {
-    e = games.map((g) => ({ game: g, title: normalize(g.title), aliases: g.aliases.map((a) => normalize(a)) }))
+    e = games.map((g) => ({
+      game: g,
+      title: normalize(g.title),
+      aliases: g.aliases.map((a) => normalize(a)),
+      rawAliases: [...g.aliases],
+    }))
     normCache.set(games, e)
   }
   return e
 }
 
-/** Suggestion matches for a free-text query: title or alias contains it. */
-export function suggestMatches(games: GameEntry[], query: string, exclude?: Set<string>): GameEntry[] {
+/** Suggestion matches for a free-text query: title or alias contains it.
+ *  The label shows what the player recognizes — the matched alias when the
+ *  hit came through one ("Anno 1404 → Dawn of Discovery (2009)"), otherwise
+ *  the plain "Title (year)". Picking always submits the canonical title. */
+export interface Suggestion {
+  game: GameEntry
+  label: string
+}
+/** Ranked suggestion matches: titles/aliases *starting* with the query come
+ *  first ("anno" finds Anno 1602 before Cannon Fodder), alphabetical within
+ *  each group. Catalog order no longer decides. */
+export function suggestMatches(games: GameEntry[], query: string, exclude?: Set<string>): Suggestion[] {
   const q = normalize(query.trim())
   if (q.length < 2) return []
-  return normalizedEntries(games)
-    .filter(
-      (e) =>
-        (!exclude || !exclude.has(e.game.id)) &&
-        (e.title.includes(q) || e.aliases.some((a) => a.includes(q))),
+  const ranked: Array<{ suggestion: Suggestion; startsWith: boolean }> = []
+  for (const e of normalizedEntries(games)) {
+    if (exclude && exclude.has(e.game.id)) continue
+    if (e.title.includes(q)) {
+      ranked.push({
+        suggestion: { game: e.game, label: `${e.game.title} (${e.game.year})` },
+        startsWith: e.title.startsWith(q),
+      })
+    } else {
+      const hitIdx = e.aliases
+        .map((a, i) => (a.includes(q) ? i : -1))
+        .filter((i) => i >= 0)
+        .sort((a, b) => e.aliases[a].length - e.aliases[b].length)[0]
+      if (hitIdx === undefined) continue
+      ranked.push({
+        suggestion: { game: e.game, label: `${e.rawAliases[hitIdx]} → ${e.game.title} (${e.game.year})` },
+        startsWith: e.aliases[hitIdx].startsWith(q),
+      })
+    }
+  }
+  return ranked
+    .sort(
+      (a, b) =>
+        Number(b.startsWith) - Number(a.startsWith) ||
+        a.suggestion.label.localeCompare(b.suggestion.label),
     )
-    .map((e) => e.game)
     .slice(0, 8)
+    .map((r) => r.suggestion)
 }
 
 function typoThreshold(len: number): number {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkGuess, isMoreSpecific, normalize, numeralsCovered, titleMask, tokenIncludes } from './fuzzy'
+import { checkGuess, isMoreSpecific, normalize, numeralsCovered, suggestMatches, titleMask, tokenIncludes } from './fuzzy'
 import { GAMES, getGame } from '../data/games'
 import type { GameEntry } from '../data/games'
 
@@ -13,6 +13,32 @@ const g = (id: string, title: string, aliases: string[] = []): GameEntry => ({
   platforms: ['PC'],
   aliases,
   screenshot: '/x.jpg',
+})
+
+describe('suggestMatches ranking', () => {
+  it('starts-with matches come first, alphabetical within groups', () => {
+    const labels = suggestMatches(GAMES, 'anno').map((s) => s.label)
+    expect(labels.length).toBeGreaterThan(0)
+    // every starts-with hit precedes every other hit
+    const firstOther = labels.findIndex(
+      (l) => !l.toLowerCase().startsWith('anno'),
+    )
+    expect(firstOther).toBeGreaterThan(0)
+    expect(labels.slice(0, firstOther).every((l) => l.toLowerCase().startsWith('anno'))).toBe(true)
+    const sorted = [...labels.slice(0, firstOther)].sort((a, b) => a.localeCompare(b))
+    expect(labels.slice(0, firstOther)).toEqual(sorted)
+    // "Cannon Fodder" only matches mid-word, so it sorts after them
+    const cannon = labels.findIndex((l) => /cannon fodder/i.test(l))
+    if (cannon >= 0) expect(cannon).toBeGreaterThanOrEqual(firstOther)
+  })
+})
+
+describe('regional titles (real pool)', () => {
+  it('"anno 1404" solves and suggests Dawn of Discovery', () => {
+    const game = getGame('dawn-of-discovery--1')!
+    expect(checkGuess('anno 1404', game).correct).toBe(true)
+    expect(suggestMatches(GAMES, 'anno').map((s) => s.game.id)).toContain('dawn-of-discovery--1')
+  })
 })
 
 describe('normalize', () => {

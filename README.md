@@ -102,12 +102,13 @@ Same legal posture as IGDB (fan captures, © publishers, review by hand).
 
 You chose **external web + link** instead of the Discord Embedded App SDK, so:
 
-1. Click **“Share this level on Discord”** → copies e.g. `https://your-host/?game=elden-ring`.
+1. Click **"Copy challenge link"** → copies e.g. `https://your-host/?game=3fa9c1e`
+   (opaque code, no title spoiler).
 2. Paste it in any Discord channel. Discord unfurls the link (OG tags in `index.html`);
    anyone opening it plays **exactly that level** (`?game=` is read on load, with a
    “Shared challenge” banner).
-3. After solving, **“Copy result for Discord”** copies e.g.
-   `🎮 Guess the Game — I guessed Elden Ring (2022) at 16×16 for 250 pts! …` — paste it
+3. After solving, **"Copy result as text"** copies e.g.
+   `🎮 Guess the Game — I guessed Elden Ring (2022) at 16×16 for 500 pts! …` — paste it
    back so the channel can compare scores.
 
 No bot, no SDK, no OAuth. If you later want in-client leaderboards / `shareMoment`,

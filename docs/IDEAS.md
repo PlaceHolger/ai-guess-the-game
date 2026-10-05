@@ -1,8 +1,7 @@
 # Guess the Game — Future Ideas (parking lot, roughly by value/effort)
 
 ## Gameplay
-- **Local round history + personal bests** (localStorage): date, filters,
-  score, solved/total. Solo progression without any server.
+- ~~**Local round history + personal bests** (localStorage)~~ — done (summary + setup screen).
 - **Shared leaderboard** (only if wanted): Supabase/Upstash + anonymous
   names. Self-reported scores, no anti-cheat — fine for friends, meaningless
   globally. Alternative: the Discord channel already *is* the leaderboard.
@@ -13,6 +12,29 @@
 - **Daily challenge**: one shared level per day (seed by date), streaks.
 - **Difficulty tiers**: 16-wide start for all vs. higher-start "easy mode".
 - **Timed rounds**: countdown per guess, bonus for speed.
+- **Full keyboard play**: no mouse needed — ↑/↓ + Enter picks an autocomplete
+  suggestion, single-letter shortcuts for hint (H), reveal more (R), skip (S),
+  give up (G?) and next level (N/Enter on result screen). Focus ring must
+  always show where you are; must not fight the mobile keyboard.
+- **Replay earlier round levels**: navigate back to previous challenges
+  inside a running round to play them again (pass-and-play with a local
+  friend, re-testing bugged levels). Explicitly *not* scored — results stay
+  as first recorded, so replays can't farm points or overwrite history.
+
+## Localization
+- **UI language toggle (DE/EN)**: all interface strings localized, including
+  the autocomplete dropdown (which must search *and display* regional titles).
+- **Regional display titles**: per-game locale titles shown when active
+  (Anno 1404 for Dawn of Discovery), falling back to the main title. Seed
+  from existing regional aliases (siedler, anno 1404, wrota baldura…).
+- Matching stays locale-independent — the fuzzy matcher already accepts all
+  aliases, so this is display + suggestions work, not matching work.
+
+## Layout
+- **Fullscreen / wide desktop layout**: the game column stays narrow on big
+  screens, forcing manual zoom. Use the width: larger canvas, side-by-side
+  play + guess columns on desktop (stacked on mobile), ideally with a
+  fullscreen toggle for the screenshot.
 
 ## Data & sources
 - **Wikipedia best-sellers flag**: explicit "best sellers" package. Decided

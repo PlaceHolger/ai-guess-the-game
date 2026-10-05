@@ -43,6 +43,19 @@ describe('catalog integrity', () => {
     for (const id of Object.keys(SALES)) expect(getGame(id), id).toBeDefined()
     expect(Object.keys(SALES).length).toBeGreaterThan(0)
   })
+  it('no alias normalizes to its own title, platforms hold no duplicates', () => {
+    const badAlias: string[] = []
+    const badPlats: string[] = []
+    for (const g of GAMES) {
+      const nt = normalize(g.title)
+      for (const a of g.aliases) {
+        if (a && normalize(a) === nt) badAlias.push(`${g.id}: "${a}"`)
+      }
+      if (new Set(g.platforms).size !== g.platforms.length) badPlats.push(g.id)
+    }
+    expect(badAlias).toEqual([])
+    expect(badPlats).toEqual([])
+  })
   it('lists near-duplicates for manual review (informational)', () => {
     // same-year titles where one contains the other: potential double levels
     const norm = (t: string) => normalize(t)

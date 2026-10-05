@@ -14,7 +14,7 @@ import path from 'node:path'
 const ROOT = path.resolve(process.cwd())
 const TSV = path.join(ROOT, 'src', 'data', 'games.tsv')
 const OUT = path.join(ROOT, 'src', 'data', 'games.hand.ts')
-const COLS = ['id', 'title', 'year', 'genre', 'publisher', 'developer', 'platforms', 'aliases', 'igdbQuery', 'screenshot', 'altScreenshots', 'metacritic', 'remote', 'remoteAlts']
+const COLS = ['id', 'title', 'year', 'genre', 'publisher', 'developer', 'platforms', 'aliases', 'igdbQuery', 'screenshot', 'altScreenshots', 'metacritic', 'remote', 'remoteAlts', 'popular']
 
 // quote a TS string literal, preferring single quotes like the rest of the codebase
 function q(s) {
@@ -26,8 +26,8 @@ function q(s) {
 export function parseTsv(text) {
   const lines = text.replace(/^\uFEFF/, '').split('\n')
   let header = (lines.shift() ?? '').split('\t')
-  // metacritic / remote columns are optional in existing sheets (added on first backfill)
-  for (const legacy of [COLS.slice(0, 11), COLS.slice(0, 12)]) {
+  // metacritic / remote / popular columns are optional in existing sheets
+  for (const legacy of [COLS.slice(0, 11), COLS.slice(0, 12), COLS.slice(0, 14)]) {
     if (header.join('\t') === legacy.join('\t')) header = [...header, ...COLS.slice(header.length)]
   }
   if (header.join('\t') !== COLS.join('\t')) {
@@ -49,6 +49,9 @@ export function parseTsv(text) {
     const year = Number(r.year)
     if (!Number.isInteger(year) || year < 1970 || year > 2026) throw new Error(`line ${i + 2} (${r.id}): bad year "${r.year}"`)
     if (!r.screenshot) throw new Error(`line ${i + 2} (${r.id}): missing screenshot`)
+    if (r.popular !== '' && r.popular !== 'true' && r.popular !== 'false') {
+      throw new Error(`line ${i + 2} (${r.id}): popular must be true/false/empty, got "${r.popular}"`)
+    }
     r.year = year
     r.platforms = r.platforms.split('|').map((s) => s.trim()).filter(Boolean)
     if (!r.platforms.length) throw new Error(`line ${i + 2} (${r.id}): need at least one platform`)
@@ -79,6 +82,7 @@ export function emitTs(rows) {
       parts.push(`screenshot: ${q(r.screenshot)}`)
       if (r.altScreenshots.length) parts.push(`altScreenshots: [${r.altScreenshots.map(q).join(', ')}]`)
       if (r.metacritic) parts.push(`metacritic: ${r.metacritic}`)
+      if (r.popular !== '') parts.push(`popular: ${r.popular}`)
       if (r.remote) parts.push(`remote: ${q(r.remote)}`)
       if (r.remoteAlts.length) parts.push(`remoteAlts: [${r.remoteAlts.map(q).join(', ')}]`)
       return `  { ${parts.join(', ')} },`

@@ -4,6 +4,7 @@ import GuessSuggestions from './components/GuessSuggestions'
 import GuessForm from './components/GuessForm'
 import { GAMES, getGame } from './data/games'
 import { checkGuess, normalize, numeralsCovered, suggestMatches, titleMask, tokenIncludes } from './lib/fuzzy'
+import type { Suggestion } from './lib/fuzzy'
 import {
   LEVELS,
   AFFILIATE_TAG,
@@ -104,6 +105,22 @@ interface StoredRound {
   results: Record<string, RoundResult>
   gameId: string
   listName: string | null
+  // per-level progress (all optional for forward safety — older snapshots
+  // resume at level 0 with a clean slate)
+  levelIdx?: number
+  maxLevel?: number
+  attempts?: number
+  wrongs?: number
+  hintStage?: number
+  solved?: boolean
+  gaveUp?: boolean
+  shotPos?: number
+}
+
+/** Clamped int from untrusted storage, with fallback. */
+function storedInt(v: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof v === 'number' && Number.isFinite(v) ? Math.floor(v) : NaN
+  return Number.isInteger(n) && n >= min && n <= max ? n : fallback
 }
 
 function loadStoredRound(): StoredRound | null {
@@ -121,6 +138,14 @@ function loadStoredRound(): StoredRound | null {
       results: s.results && typeof s.results === 'object' ? s.results : {},
       gameId: s.gameId,
       listName: typeof s.listName === 'string' ? s.listName : null,
+      levelIdx: s.levelIdx,
+      maxLevel: s.maxLevel,
+      attempts: s.attempts,
+      wrongs: s.wrongs,
+      hintStage: s.hintStage,
+      solved: s.solved,
+      gaveUp: s.gaveUp,
+      shotPos: s.shotPos,
     }
   } catch {
     return null
@@ -302,16 +327,16 @@ export default function App() {
       randomGame().id
     )
   })
-  const [levelIdx, setLevelIdx] = useState(0)
-  const [maxLevel, setMaxLevel] = useState(0)
-  const [attempts, setAttempts] = useState(0)
-  const [wrongs, setWrongs] = useState(0)
-  const [hintStage, setHintStage] = useState(0)
-  const [solved, setSolved] = useState(false)
+  const [levelIdx, setLevelIdx] = useState(() => storedInt(initialStored?.levelIdx, 0, LEVELS.length - 1, 0))
+  const [maxLevel, setMaxLevel] = useState(() => storedInt(initialStored?.maxLevel, 0, LEVELS.length - 1, 0))
+  const [attempts, setAttempts] = useState(() => storedInt(initialStored?.attempts, 0, 9999, 0))
+  const [wrongs, setWrongs] = useState(() => storedInt(initialStored?.wrongs, 0, 9999, 0))
+  const [hintStage, setHintStage] = useState(() => storedInt(initialStored?.hintStage, 0, 2, 0))
+  const [solved, setSolved] = useState(() => initialStored?.solved === true)
   // repeat (capped-score) status captured at solve time: the share text must
   // report the capped points, and seen-history already contains the game after
   const [solvedRepeat, setSolvedRepeat] = useState(false)
-  const [gaveUp, setGaveUp] = useState(false)
+  const [gaveUp, setGaveUp] = useState(() => initialStored?.gaveUp === true)
   const [message, setMessage] = useState<string | null>(null)
   // increments on every non-solving submit: GuessForm shakes the button
   const [shakeTick, setShakeTick] = useState(0)
@@ -362,7 +387,7 @@ export default function App() {
   // spelling-aid browser removed (guess autocomplete covers it)
   // session no-repeat + random screenshot per appearance (shared links: primary)
   const seenRef = useRef<Set<string>>(new Set([gameId]))
-  const [shotPos, setShotPos] = useState(0)
+  const [shotPos, setShotPos] = useState(() => storedInt(initialStored?.shotPos, 0, 99, 0))
   const [shotAspect, setShotAspect] = useState<number | null>(null)
   // Actually displayed screenshot per game (follows rotation fallthrough).
   const shotHistRef = useRef(new Map<string, number>())
@@ -446,8 +471,8 @@ export default function App() {
   const points = earnedPoints(maxLevel, hintStage)
   const sharePool = { pkg: activePackage, ...filters }
   // Suggestions for the list editor (excludes games already on the list).
-  const addSuggestions = useMemo(() => {
-    if (editingList === null) return [] as GameEntry[]
+  const addSuggestions = useMemo<Suggestion[]>(() => {
+    if (editingList === null) return []
     const onList = new Set(lists.find((l) => l.name === editingList)?.ids ?? [])
     return suggestMatches(GAMES, addQuery, onList)
   }, [addQuery, editingList, lists])
@@ -607,11 +632,8 @@ export default function App() {
     setEditingList((e) => (e === name ? null : e))
   }, [])
 
-  const addToList = useCallback((display: string) => {
-    const m = display.match(/^(.*) \((\d{4})\)$/)
-    const g = m
-      ? GAMES.find((x) => x.title === m[1] && x.year === Number(m[2]))
-      : GAMES.find((x) => x.title === display)
+  const addToList = useCallback((id: string) => {
+    const g = getGame(id)
     if (!g) return
     setLists((ls) =>
       ls.map((l) => (l.name === editingList && !l.ids.includes(g.id) ? { ...l, ids: [...l.ids, g.id] } : l)),
@@ -689,13 +711,21 @@ export default function App() {
           results: roundResults,
           gameId,
           listName: roundListName,
+          levelIdx,
+          maxLevel,
+          attempts,
+          wrongs,
+          hintStage,
+          solved,
+          gaveUp,
+          shotPos,
         }
         sessionStorage.setItem(ROUND_KEY, JSON.stringify(parked))
       }
     } catch {
       // ignore
     }
-  }, [roundQueue, roundResults, gameId, roundListName])
+  }, [roundQueue, roundResults, gameId, roundListName, levelIdx, maxLevel, attempts, wrongs, hintStage, solved, gaveUp, shotPos])
 
   // If the filters exclude the current game, jump to one that matches —
   // unless the current game is a shared challenge link, or a round is running.
@@ -710,19 +740,47 @@ export default function App() {
 
   const submitGuess = useCallback((value: string) => {
     if (finished || !value.trim()) return
+    // An exact pick for exactly one game is never doubtful: it either solves
+    // (this level) or names a different game (redirect) — no "Almost".
+    const gnorm = normalize(value)
+    // Exact title/alias match, with the "Title (year)" form autocomplete
+    // inserts on pick counting too.
+    const exactTitle = (g: GameEntry, n: string): boolean =>
+      n === normalize(g.title) ||
+      n === normalize(`${g.title} (${g.year})`) ||
+      g.aliases.some((a) => normalize(a) === n)
+    const exactHits = GAMES.filter((o) => exactTitle(o, gnorm))
+    if (exactHits.length === 1 && exactHits[0].id === game.id) {
+      // unique exact: solve below
+    } else if (exactHits.length === 1) {
+      const other = exactHits[0]
+      const fr = franchiseOf(other)
+      const note =
+        other.developer === game.developer
+          ? ` — same developer (${game.developer})`
+          : fr && fr === franchiseOf(game)
+            ? ` — same ${fr} universe`
+            : other.publisher === game.publisher
+              ? ` — also ${game.publisher}`
+              : ''
+      setAttempts((a) => a + 1)
+      const echo = value.trim()
+      const namesIt =
+        normalize(echo) === normalize(other.title) ||
+        normalize(echo) === normalize(`${other.title} (${other.year})`)
+      setMessage(
+        namesIt
+          ? `🎯 Your guess "${echo}" is not the correct answer for this level${note}!`
+          : `🎯 Your guess "${echo}" is ${other.title} (${other.year})${note} — not the correct answer for this level!`,
+      )
+      return
+    }
     const res = checkGuess(value, game)
     if (res.correct) {
-      // Exact title/alias match wins outright when unique ("gothic").
-      // Otherwise: if this is the ONLY game the guess fits — however
-      // partial ("resident evil biohazard" only fits RE7) — it solves.
-      // Several fits → name it precisely ("🔎 Almost — …").
-      const gnorm = normalize(value)
-      // Exact title/alias match wins outright when unique ("gothic"). The
-      // "Title (year)" form counts too — autocomplete inserts it on pick.
-      const exactTitle = (g: GameEntry, n: string): boolean =>
-        n === normalize(g.title) ||
-        n === normalize(`${g.title} (${g.year})`) ||
-        g.aliases.some((a) => normalize(a) === n)
+      // Unique exact already solved above; here the guess is either fuzzy or
+      // exact for several games. Solve only as the single fit — otherwise
+      // name it precisely ("🔎 Almost — …"). Rivals must also cover the
+      // guess's numerals ("doom 2016" can't mean Doom 1993).
       const exactHere = exactTitle(game, gnorm)
       const exactElsewhere =
         exactHere && GAMES.some((o) => o.id !== game.id && exactTitle(o, gnorm))
@@ -903,17 +961,7 @@ export default function App() {
           {sharedDropped > 0 && (
             <>· {sharedDropped} game{sharedDropped > 1 ? 's' : ''} no longer in the pool{' '}</>
           )}
-          <button onClick={exitRound}>Exit round</button>{' '}
-          <button
-            onClick={async () => {
-              const ok = await copyText(
-                roundLink(roundQueue, Math.max(0, roundQueue.indexOf(gameId)), roundQueue.map(viewedShot)),
-              )
-              flash(ok ? 'Round link copied — same levels, same shots, same order!' : 'Copy failed')
-            }}
-          >
-            Copy round link
-          </button>
+          <button onClick={exitRound}>Exit round</button>
         </div>
       )}
 
@@ -956,6 +1004,7 @@ export default function App() {
               <button onClick={roundListName ? replayList : startRound}>{roundListName ? `Replay ${roundListName}` : 'New round'}</button>
               <button onClick={() => { const id = nextFreePick(); if (id) { exitRound(); pickGame(id) } }} disabled={pool.length === 0}>Free play</button>
               <button
+                title="Shares the whole round — same games, same order, same screenshots."
                 onClick={async () => {
                   const ok = await copyText(roundLink(roundQueue, Math.max(0, roundQueue.indexOf(gameId)), roundQueue.map(viewedShot)))
                   flash(ok ? 'Round link copied — same 10 levels, same order!' : 'Copy failed')
@@ -1130,7 +1179,7 @@ export default function App() {
                     onChange={(e) => setAddQuery(e.target.value)}
                     placeholder="Type to add a game…"
                   />
-                  <GuessSuggestions suggestions={addSuggestions} onPick={addToList} />
+                  <GuessSuggestions suggestions={addSuggestions} query={addQuery} onPick={addToList} />
                 </>
               )}
             </div>
@@ -1218,6 +1267,7 @@ export default function App() {
             <div className="btnrow">
               <button
                 className="primary"
+                title="Shares just this level — your friends guess this game, not the whole round."
                 onClick={async () => {
                   const ok = await copyText(shareLink(game.id, sharePool, viewedShot(game.id)))
                   flash(ok ? 'Challenge link copied — paste it anywhere!' : 'Copy failed')
@@ -1255,7 +1305,7 @@ export default function App() {
                   <button className="primary" onClick={() => setShowSummary(true)}>Round results →</button>
                 )
               ) : (
-                <button onClick={() => { const id = nextFreePick(game.id); if (id) pickGame(id) }} disabled={pool.length < 2}>Next random</button>
+                <button className="primary" onClick={() => { const id = nextFreePick(game.id); if (id) pickGame(id) }} disabled={pool.length < 2}>Next random</button>
               )}
             </div>
           </div>
@@ -1270,6 +1320,7 @@ export default function App() {
         {!finished && (
           <div className="btnrow">
             <button
+              title="Shares just this level — your friends guess this game, not the whole round."
               onClick={async () => {
                 const ok = await copyText(shareLink(game.id, sharePool, viewedShot(game.id)))
                 flash(ok ? 'Challenge link copied — paste it anywhere!' : 'Copy failed')
@@ -1277,6 +1328,19 @@ export default function App() {
             >
               Copy challenge link
             </button>
+            {roundQueue !== null && (
+              <button
+                title="Shares the whole round — same games, same order, same screenshots."
+                onClick={async () => {
+                  const ok = await copyText(
+                    roundLink(roundQueue, Math.max(0, roundQueue.indexOf(gameId)), roundQueue.map(viewedShot)),
+                  )
+                  flash(ok ? 'Round link copied — same levels, same shots, same order!' : 'Copy failed')
+                }}
+              >
+                Copy round link
+              </button>
+            )}
             <button className="danger" onClick={giveUp}>
               Give up & reveal
             </button>
@@ -1289,7 +1353,7 @@ export default function App() {
         <details className="how">
           <summary>How scoring & sharing works</summary>
           <ul>
-            <li>Each level is one game. You start at <strong>16 wide</strong> ({LEVELS[0].points} pts). Every reveal halves the points down to full image.</li>
+            <li>Each level is one game. You start at <strong>16 wide</strong> ({LEVELS[0].points} pts). Every reveal halves the points down to full image. Upscaling is handled by our proprietary DLSS 5 pipeline: the game renders at 16 pixels and reconstructs the rest from pure vibes.</li>
             <li>Near answers count: <em>“gta 5”</em> solves Grand Theft Auto V, <em>“botw”</em> solves Breath of the Wild, typos included. Vague names fit several games — then you get asked which one exactly.</li>
             <li><strong>Hints:</strong> first hint reveals the release year, second the title shape. Each halves your points (min 10).</li>
             <li><strong>Rounds:</strong> set genre / publisher / platform / year filters, then “Start round” plays 10 random levels from that pool. The summary lets you share any single game and copy the round result as text.</li>

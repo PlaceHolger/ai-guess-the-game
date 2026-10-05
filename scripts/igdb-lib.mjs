@@ -7,6 +7,10 @@ export const ROOT = path.resolve(process.cwd())
 export const DATA_DIR = path.join(ROOT, 'src', 'data')
 export const OUT_DIR = path.join(ROOT, 'public', 'screenshots')
 
+/** rating_count floor for the mainstream default pool (shared by the
+ *  importer and backfill-auto so both classify identically). */
+export const VOTES_POPULAR = 25
+
 /** Hand-list membership: games.tsv is the source of truth for these ids —
  *  edits must go to the TSV row, never to generated games.hand.ts (which
  *  data:build overwrites on every dev/build). */

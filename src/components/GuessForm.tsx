@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import GuessSuggestions from './GuessSuggestions'
-import { GAMES } from '../data/games'
+import { GAMES, getGame } from '../data/games'
 import { suggestMatches } from '../lib/fuzzy'
 
 interface Props {
@@ -65,9 +65,14 @@ export default function GuessForm({ onSubmit, actions, shakeKey = 0 }: Props) {
           />
           <GuessSuggestions
             suggestions={suggestions}
-            onPick={(t) => {
-              setValue(t)
-              setDismissed(true)
+            query={value}
+            onPick={(id) => {
+              const picked = getGame(id)
+              if (picked) {
+                // canonical "Title (year)": always an exact, solvable pick
+                setValue(`${picked.title} (${picked.year})`)
+                setDismissed(true)
+              }
             }}
           />
         </div>

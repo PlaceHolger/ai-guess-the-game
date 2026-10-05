@@ -62,10 +62,23 @@ body {
 .guessfield { position: relative; flex: 1; min-width: 180px; }
 .guessfield input { width: 100%; box-sizing: border-box; }
 .guessfield > .gamelist {
-  position: absolute; top: 100%; left: 0; right: 0; z-index: 5;
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
   background: #12101f; border: 1px solid #3b3358; border-radius: 10px;
-  padding: 8px; margin-top: 4px; max-height: 220px; overflow-y: auto;
+  padding: 8px; margin-top: 4px; max-height: 320px; overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
 }
+.guessfield > .gamelist button {
+  text-align: left; font-size: 14px; padding: 8px 10px; min-width: 0;
+}
+.guessfield > .gamelist {
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #3b3358 transparent;
+}
+.guessfield > .gamelist::-webkit-scrollbar { width: 8px; }
+.guessfield > .gamelist::-webkit-scrollbar-thumb { background: #3b3358; border-radius: 4px; }
+.guessfield > .gamelist::-webkit-scrollbar-track { background: transparent; }
 .summary h2 { margin: 4px 0 8px; }
 .history h3 { margin: 14px 0 4px; font-size: 15px; }
 .roundlist { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
@@ -153,6 +166,9 @@ button.danger { background: #451a1a; }
 .how code { color: var(--text); }
 .gamelist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .gamelist button { font-size: 12px; padding: 6px 10px; }
+.guessfield > .gamelist button { color: #b79bff; }
+.guessfield > .gamelist button .sug-title .sug-match { text-underline-offset: 2px; }
+.guessfield > .gamelist button .sug-year { color: var(--text); }
 .gamelist button.active { outline: 2px solid var(--accent); }
 
 /* small screens: stack header, comfortable tap targets, no iOS input zoom */

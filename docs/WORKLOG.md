@@ -27,8 +27,14 @@ Authoritative plan: `.kilo/plans/game-guesser-review.md`. Do not re-litigate §2
 - [x] Plan: audit exit codes/--strict/--shared-remote/--dupes + comment strip, orphan cleanup (55 files), dupe --fix
 - [x] Plan: remove-game hardening (remote-aware --missing, --yes, TSV target), C3 TSV-first ordering (import/fetch/audit/retro), CI gate (test + shared-remote audit), runbook section
 - [x] Plan: round persistence (sessionStorage + resume/discard, share links win) + error boundary, with tests
+- [x] Round persistence extras: per-level state (level/attempts/wrongs/hints/solved/shot) resumes invisibly, tested
+- [x] Content cleanup: fix-data.mjs (self-title aliases, dup platforms, exact-dupe aliases), 255+9 alias drops, 38 platform dedupes, Sonic/Witcher franchise merge, rival-title alias removals (Mega Man numerals, mario bros, metal gear solid, final fantasy, diablo, doom, god of war), credit fixes IGDB-verified (GoW II/III→Sony, Sonic 3→Sega, ALTTP/F-Zero→Nintendo, dropped fake engine), zombies dev left alone (plan was wrong — LucasArts developed it)
 - [x] Round history + personal best (localStorage, summary + setup, tested)
-- [x] Popular one-time fill via backfill (47 popular / 29 niche; hand list untouched)
+- [x] Pool rule groundwork (replaces percentile plan): measurement proved
+  signal-based auto-demotion would exile Tetris/Mario/Sonic (near-zero IGDB
+  votes for pre-90s classics); explicit `popular` flags stay the mechanism,
+  import/backfill share one VOTES_POPULAR threshold, hand TSV gained an
+  appended `popular` column for curator overrides
 - [x] Sales info track: fetch-sales (Wikidata + Wikipedia, 143 joined), sales.tsv→sales.ts compile, ≈-row on result card, join + formatter tests
 
 ### Standing decisions (from user + conventions doc)

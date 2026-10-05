@@ -1,12 +1,13 @@
-# Guess the Game — Current State (as of 2026-10-04)
+# Guess the Game — Current State (as of 2026-10-06)
 
 ## Can I test it right now?
 
 Yes. Dev servers run on **http://localhost:5173/** and **http://localhost:5174/**
 (both watch the same files — if behavior looks stale, hard-refresh with
 Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
-`npm run test` (39 vitest cases) and `npm run build` pass;
-`node scripts/audit.mjs` is the data health check.
+`npm run test` (80+ vitest cases) and `npm run build` pass;
+`node scripts/audit.mjs` is the data health check (green: no missing, orphans,
+dupes or shared shots).
 
 ## What works
 
@@ -30,11 +31,11 @@ Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
 - **Result card**: genre/publisher/developer/platforms, Metacritic (where
   known, ~600 scores via RAWG), Amazon + MobyGames links (affiliate-ready,
   tag empty), footer Sources & credits (IGDB, libretro; RAWG row still open).
-- **Pool**: ~1,510 levels (202 hand-curated TSV + ~1,310 bulk + custom),
+- **Pool**: ~1,560 levels (202 hand-curated TSV + ~1,355 bulk + custom),
   1976–2026, 80+ platforms. Every entry hotlinks IGDB CDN shots
   (100% remote coverage, hand remotes live in the TSV); local files are
   fallback-only, paths are deploy-base-relative. Health:
-  0 orphans, 0 byte-dupes, ~600 Metacritic scores, regional aliases, 31/31 tests.
+  0 orphans, 0 byte-dupes, 0 shared shots, ~600 Metacritic scores, regional aliases, 83 tests.
 - **Tooling**: IGDB fetch (year-aware matcher), bulk import (year/company/
   platform/franchise/engine/enrich), Libretro retro fallback, add-custom,
   audit (missing/orphans/dupes/exotics), remove (single + bulk), backfills

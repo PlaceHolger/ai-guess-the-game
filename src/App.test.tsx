@@ -146,6 +146,20 @@ describe('App', () => {
     }
   })
 
+  it('restores per-level progress (attempts, hints, resolution) on resume', () => {
+    window.sessionStorage.setItem(
+      'gameguesser.round',
+      JSON.stringify({
+        v: 1, uid: 9, queue: ['tetris', 'doom'], results: {}, gameId: 'tetris', listName: null,
+        levelIdx: 2, maxLevel: 2, attempts: 3, wrongs: 1, hintStage: 1, solved: false, gaveUp: false, shotPos: 1,
+      }),
+    )
+    render(<App />)
+    expect(screen.getByText(/Attempts:/).textContent).toMatch(/3/)
+    expect(screen.getByText(/Release year:/).textContent).toMatch(/1984/)
+    expect(screen.getByTitle('48×48 — 300 pts').className).toMatch(/active/)
+  })
+
   it('an explicit game link overrides a stored round', () => {
     window.sessionStorage.setItem(
       'gameguesser.round',
@@ -176,6 +190,15 @@ describe('App', () => {
     fireEvent.click(screen.getByText('Free play'))
     fireEvent.click(screen.getByText('⚙ New game'))
     expect(screen.getByText(/Best round:/).textContent).toMatch(/0 pts/)
+  })
+
+  it('redirects a unique exact pick even when it fuzzily fits the level', () => {
+    render(<App />)
+    fireEvent.change(screen.getByPlaceholderText('Which game is this?'), { target: { value: 'Gothic II (2002)' } })
+    fireEvent.click(screen.getByText('Guess'))
+    const msg = screen.getByText(/not the correct answer for this level!/).textContent ?? ''
+    expect(msg).toMatch(/Your guess "Gothic II \(2002\)" is not/)
+    expect(msg).not.toMatch(/Almost/)
   })
 
   it('uses unique keys for siblings (same key duplicates/omits DOM nodes)', () => {

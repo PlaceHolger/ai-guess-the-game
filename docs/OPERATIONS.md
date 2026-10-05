@@ -99,7 +99,8 @@ The 201 curated entries live in `src/data/games.tsv` (UTF-8, tab-separated —
 opens in Excel/LibreOffice; keep the year column as text and save back as
 UTF-8 TSV). Columns:
 
-`id | title | year | genre | publisher | developer | platforms | aliases | igdbQuery | screenshot | altScreenshots | metacritic | remote | remoteAlts`
+`id | title | year | genre | publisher | developer | platforms | aliases | igdbQuery | screenshot | altScreenshots | metacritic | remote | remoteAlts | popular`
+(`popular` is `true`/`false`/empty; empty means "judge by default rule".)
 
 Screenshot paths are relative (`screenshots/<year>/<id>.jpg`, no leading
 slash) and resolved against the deploy base at runtime, so GitHub Pages
@@ -140,6 +141,19 @@ which game a fuzzy name means (*Lords of the Fallen* 2014 vs 2023).
   rule). `lords-of-the-fallen` (2014) vs `lords-of-the-fallen-2023` are two
   genuinely different games sharing a title — never collapse them; both
   deliberately carry alias `lf`.
+
+### 3d. Sales figures (info row, not scoring)
+
+`npm run fetch:sales` joins Wikidata units-sold + Wikipedia best-sellers to
+pool ids (`src/data/sales.tsv`: id/units/source) and `data:build` compiles it
+to `sales.ts`. The result card shows `≈15M copies` (source tooltip) only when
+a figure exists — approximate by design (lower bounds, no as-of date).
+
+### 3e. Data hygiene passes
+
+- `node scripts/prune-aliases.mjs --apply` — drops stub acronym aliases (<3 chars).
+- `node scripts/fix-data.mjs --apply` — drops self-title aliases, dedupes platforms.
+- Both default to dry-run report mode; `games.hand.ts` regenerates via data:build.
 
 ## 4. Screenshots: sources and fetchers
 
@@ -272,8 +286,8 @@ preview with `--dry` first and apply with `--yes`.
 
 ## 7. Testing checklist
 
-- `npm run test` — 25+ vitest cases (fuzzy matrix, sequel rules, data
-  integrity incl. no-duplicate-ids/titles). Must be green.
+- `npm run test` — 80+ vitest cases (fuzzy matrix, sequel rules, data
+  integrity incl. no-duplicate-ids/titles, component regressions). Must be green.
 - `npm run build` — must pass (typecheck + bundle).
 - Guess flow: wrong → close (typo) → correct; points drop per reveal; no
   point restore when going back to blurrier views.

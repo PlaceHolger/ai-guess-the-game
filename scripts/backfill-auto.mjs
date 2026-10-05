@@ -5,10 +5,9 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { DATA_DIR, getCreds, igdb, sleep, twitchToken } from './igdb-lib.mjs'
+import { DATA_DIR, VOTES_POPULAR, getCreds, igdb, sleep, twitchToken } from './igdb-lib.mjs'
 
 const AUTO_FILE = path.join(DATA_DIR, 'games.auto.ts')
-const VOTES_POPULAR = 25
 
 const PUBLISHER_NORM = [
   [/^Sierra (Studios|On-Line|Online Shanghai|Northwest|Entertainment)$/, 'Sierra'],

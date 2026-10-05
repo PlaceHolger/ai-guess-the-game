@@ -20,6 +20,7 @@ import path from 'node:path'
 import {
   DATA_DIR,
   OUT_DIR,
+  VOTES_POPULAR,
   big,
   getCreds,
   igdb,
@@ -245,6 +246,7 @@ function toEntry(g) {
     developer: companyOf(g.involved_companies, 'developer'),
     platforms: plats.length ? plats : ['PC'],
     aliases: autoAliases(g.name),
+    popular: (g.rating_count ?? 0) >= VOTES_POPULAR,
     igdbQuery: g.name.replace(/"/g, ''),
     igdbId: g.id,
     screenshot: `screenshots/${year}/${g.slug}.jpg`,

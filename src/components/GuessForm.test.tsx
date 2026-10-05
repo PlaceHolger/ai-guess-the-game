@@ -13,14 +13,31 @@ const type = (v: string) => {
 }
 
 describe('GuessForm', () => {
-  it('shows suggestions while typing and fills the input on pick', () => {
+  it('shows the matched alias and picks the canonical title', () => {
     render(<GuessForm onSubmit={() => undefined} />)
-    type('zelda')
-    const pick = screen.getAllByRole('button', { name: /zelda/i })[0]
+    type('anno')
+    const pick = screen.getByRole('button', { name: /Anno 1404 → Dawn of Discovery\(2009\)/i })
     fireEvent.click(pick)
-    expect((screen.getByPlaceholderText('Which game is this?') as HTMLInputElement).value).toMatch(/zelda/i)
-    // picked: dropdown closes so it never covers the result message
-    expect(screen.queryByRole('button', { name: /zelda/i })).toBeNull()
+    expect((screen.getByPlaceholderText('Which game is this?') as HTMLInputElement).value).toBe(
+      'Dawn of Discovery (2009)',
+    )
+    expect(screen.queryByRole('button', { name: /Anno 1404/ })).toBeNull()
+  })
+
+  it('underlines only the typed substring of each suggestion', () => {
+    render(<GuessForm onSubmit={() => undefined} />)
+    type('anno')
+    const underlined = screen.getAllByText('Anno', { selector: 'u.sug-match' })
+    expect(underlined.length).toBeGreaterThan(0)
+  })
+
+  it('picks a plain title match the same way', () => {
+    render(<GuessForm onSubmit={() => undefined} />)
+    type('tetris')
+    fireEvent.click(screen.getByRole('button', { name: /^Tetris\(1984\)$/ }))
+    expect((screen.getByPlaceholderText('Which game is this?') as HTMLInputElement).value).toBe(
+      'Tetris (1984)',
+    )
   })
 
   it('dismisses the dropdown on submit and reopens on further edits', () => {
