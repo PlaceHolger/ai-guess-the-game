@@ -323,7 +323,7 @@ const FRANCHISE_RULES: Array<[RegExp, string]> = [
   [/dragon quest/i, 'Dragon Quest'],
   [/kingdom hearts/i, 'Kingdom Hearts'],
   [/tekken/i, 'Tekken'],
-  [/\bsouls\b|bloodborne|sekiro|elden ring|demon'?s souls/i, 'Souls'],
+  [/\bdark souls\b|demon'?s souls|bloodborne|sekiro|elden ring|hollow knight|\bnioh\b|wo long|mortal shell|the surge|lies of p|\bremnant\b|blasphemous|salt and sanctuary|nine sols|wukong|lords of the fallen/i, 'Soulslike'],
   [/monkey island/i, 'Monkey Island'],
   [/king'?s quest/i, "King's Quest"],
   [/leisure suit larry/i, 'Leisure Suit Larry'],

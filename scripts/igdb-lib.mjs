@@ -99,6 +99,8 @@ function parseBlocks(ts) {
       igdbId: Number(field(block, 'igdbId')) || undefined,
       shot: field(block, 'screenshot'),
       alts: [...(block.match(/"?altScreenshots"?\s*:\s*\[([^\]]*)\]/)?.[1] ?? '').matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]),
+      remote: field(block, 'remote'),
+      remoteAlts: [...(block.match(/"?remoteAlts"?\s*:\s*\[([^\]]*)\]/)?.[1] ?? '').matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]),
     })
   }
   return out

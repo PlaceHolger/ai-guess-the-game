@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PixelCanvas from './components/PixelCanvas'
 import GuessSuggestions from './components/GuessSuggestions'
+import GuessForm from './components/GuessForm'
 import { GAMES, getGame } from './data/games'
 import { checkGuess, normalize, numeralsCovered, titleMask, tokenIncludes } from './lib/fuzzy'
 import {
@@ -74,8 +75,7 @@ const DECADES: Array<[string, number, number]> = [
   ['20s', 2020, YEAR_MAX],
 ]
 
-function genreMatches(gameGenre: string, selected: string[]): boolean {
-  if (selected.length === 0) return true
+function genreMatches(gameGenre: string, selected: string[]): boolean {  if (selected.length === 0) return true
   return selected.some((s) => {
     if (s === 'RPG (all)') return /rpg|role-playing/i.test(gameGenre)
     if (s === 'Shooter (all)') return /shooter/i.test(gameGenre)
@@ -112,7 +112,7 @@ const PACKAGES: PackageDef[] = [
   { label: 'Pokémon', patch: { franchises: ['Pokémon'] } },
   { label: 'Mario', patch: { franchises: ['Mario'] } },
   { label: 'Zelda', patch: { franchises: ['Zelda'] } },
-  { label: 'Souls', patch: { franchises: ['Souls'] } },
+  { label: 'Soulslikes', patch: { franchises: ['Soulslike'] } },
   { label: 'N64', patch: { platforms: ['N64'] } },
   { label: 'SNES', patch: { platforms: ['SNES'] } },
   { label: 'DOS classics', patch: { platforms: ['DOS'] } },
@@ -213,13 +213,14 @@ export default function App() {
   })
   const [levelIdx, setLevelIdx] = useState(0)
   const [maxLevel, setMaxLevel] = useState(0)
-  const [guess, setGuess] = useState('')
   const [attempts, setAttempts] = useState(0)
   const [wrongs, setWrongs] = useState(0)
   const [hintStage, setHintStage] = useState(0)
   const [solved, setSolved] = useState(false)
   const [gaveUp, setGaveUp] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  // increments on every non-solving submit: GuessForm shakes the button
+  const [shakeTick, setShakeTick] = useState(0)
   const [toast, setToast] = useState<string | null>(null)
   const [{ total, solved: solvedCount }, setScore] = useState(loadScore)
   // Shared pool (?pkg=&g=&… on a ?game= link): applied once on load so the
@@ -349,22 +350,13 @@ export default function App() {
         (normalize(x.title).includes(q) || x.aliases.some((a) => normalize(a).includes(q))),
     ).slice(0, 8)
   }, [addQuery, editingList, lists])
-  // Guess autocomplete: suggestions only, submit stays free-text (the fuzzy
-  // matcher still handles typos and regional names the list can't spell).
-  const guessSuggestions = useMemo(() => {
-    const q = normalize(guess.trim())
-    if (q.length < 2 || finished) return [] as GameEntry[]
-    return GAMES.filter(
-      (x) => normalize(x.title).includes(q) || x.aliases.some((a) => normalize(a).includes(q)),
-    ).slice(0, 8)
-  }, [guess, finished])
-
+  // Guess input lives in GuessForm (own keystroke state); submit arrives
+  // as a value so typing never re-renders the whole App.
   const pickGame = useCallback(
     (id: string) => {
       setGameId(id)
       setLevelIdx(0)
       setMaxLevel(0)
-      setGuess('')
       setAttempts(0)
       setWrongs(0)
       setHintStage(0)
@@ -542,31 +534,31 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pool, roundQueue])
 
-  const submitGuess = useCallback(() => {
-    if (finished || !guess.trim()) return
-    const res = checkGuess(guess, game)
+  const submitGuess = useCallback((value: string) => {
+    if (finished || !value.trim()) return
+    const res = checkGuess(value, game)
     if (res.correct) {
       // Exact title/alias match wins outright when unique ("gothic").
       // Otherwise: if this is the ONLY game the guess fits — however
       // partial ("resident evil biohazard" only fits RE7) — it solves.
       // Several fits → name it precisely ("🔎 Almost — …").
-      const gnorm = normalize(guess)
-      const exactHere =
-        gnorm === normalize(game.title) || game.aliases.some((a) => normalize(a) === gnorm)
+      const gnorm = normalize(value)
+      // Exact title/alias match wins outright when unique ("gothic"). The
+      // "Title (year)" form counts too — autocomplete inserts it on pick.
+      const exactTitle = (g: GameEntry, n: string): boolean =>
+        n === normalize(g.title) ||
+        n === normalize(`${g.title} (${g.year})`) ||
+        g.aliases.some((a) => normalize(a) === n)
+      const exactHere = exactTitle(game, gnorm)
       const exactElsewhere =
-        exactHere &&
-        GAMES.some(
-          (o) =>
-            o.id !== game.id &&
-            (normalize(o.title) === gnorm || o.aliases.some((a) => normalize(a) === gnorm)),
-        )
+        exactHere && GAMES.some((o) => o.id !== game.id && exactTitle(o, gnorm))
       if (exactHere && !exactElsewhere) {
         // unique exact: solve below
       } else {
         // Not uniquely exact: solve only as the single fit. Rivals must
         // also cover the guess's numerals ("doom 2016" can't mean Doom 1993).
         const others = GAMES.filter(
-          (o) => o.id !== game.id && checkGuess(guess, o).correct && numeralsCovered(guess, o),
+          (o) => o.id !== game.id && checkGuess(value, o).correct && numeralsCovered(value, o),
         )
         if (others.length > 0) {
           const names = [game, ...others].slice(0, 4).map((g) => g.title).join(' · ')
@@ -589,12 +581,14 @@ export default function App() {
       seenBeforeRef.current?.add(game.id)
       setMessage(`✅ Correct! ${game.title} (${game.year}) — +${pts} pts at ${lvl}${hintStage > 0 ? ` (after ${hintStage} hint${hintStage > 1 ? 's' : ''})` : ''}${repeat ? ' (repeat — max 10 pts)' : ''}.`)
     } else {
+      // Wrong (whatever the flavor): shake the Guess button for feedback.
+      setShakeTick((t) => t + 1)
       // The guess fits one or more OTHER games: a single rival redirects
       // ("gothic 4" while Gothic 3 is shown means Arcania), several ask.
       // Rivals must cover the guess's numerals, same as in the solve path.
-      const gnorm = normalize(guess)
+      const gnorm = normalize(value)
       const others = GAMES.filter(
-        (o) => o.id !== game.id && checkGuess(guess, o).correct && numeralsCovered(guess, o),
+        (o) => o.id !== game.id && checkGuess(value, o).correct && numeralsCovered(value, o),
       )
       if (others.length === 1) {
         const other = others[0]
@@ -608,13 +602,13 @@ export default function App() {
                 ? ` — also ${game.publisher}`
                 : ''
         setAttempts((a) => a + 1)
-        setMessage(`🎯 "${guess.trim()}" is ${other.title} (${other.year})${note} — but that's not this level!`)
+        setMessage(`🎯 "${value.trim()}" is ${other.title} (${other.year})${note} — but that's not this level!`)
         return
       }
       if (others.length > 1) {
         const names = others.slice(0, 4).map((x) => x.title).join(' · ')
         setAttempts((a) => a + 1)
-        setMessage(`❌ Nope — "${guess.trim()}" could mean several games (${names}), but this level is none of them!`)
+        setMessage(`❌ Nope — "${value.trim()}" could mean several games (${names}), but this level is none of them!`)
         return
       }
       // Naming the credits ("daedalic" for a Daedalic game): confirm the
@@ -654,7 +648,7 @@ export default function App() {
         }
       }
     }
-  }, [finished, guess, game, maxLevel, roundQueue, wrongs, levelIdx, hintStage, attempts])
+  }, [finished, game, maxLevel, roundQueue, wrongs, levelIdx, hintStage, attempts])
 
   const takeHint = useCallback(() => {
     if (finished || hintStage >= 2) return
@@ -728,12 +722,12 @@ export default function App() {
             <h2>🏁 Round over!</h2>
             <p><strong>{roundSolved}/{roundQueue.length}</strong> solved — <strong>{roundPoints} pts</strong></p>
             <div className="roundlist">
-              {roundQueue.map((id) => {
+              {roundQueue.map((id, i) => {
                 const g = getGame(id)
                 if (!g) return null
                 const r = roundResults[id]
                 return (
-                  <div key={id} className="roundrow">
+                  <div key={`${id}-${i}`} className="roundrow">
                     <span>{r?.solved ? '✅' : '❌'} {g.title} <span className="muted">({g.year})</span></span>
                     <span className="muted">{r ? (r.solved ? `${r.points} pts @ ${r.level} · ${r.tries} ${r.tries === 1 ? 'try' : 'tries'}` : `gave up (saw ${r.level}, ${r.tries} ${r.tries === 1 ? 'try' : 'tries'})`) : '—'}</span>
                     <button
@@ -836,20 +830,28 @@ export default function App() {
             />{' '}
             niche picks
           </label>
-          <label>
-            From{' '}
-            <input
-              type="number" min={YEAR_MIN} max={YEAR_MAX} value={filters.ymin} disabled={roundQueue !== null}
-              onChange={(e) => updateFilters({ ymin: Number(e.target.value) || YEAR_MIN })}
-            />
-          </label>
-          <label>
-            To{' '}
-            <input
-              type="number" min={YEAR_MIN} max={YEAR_MAX} value={filters.ymax} disabled={roundQueue !== null}
-              onChange={(e) => updateFilters({ ymax: Number(e.target.value) || YEAR_MAX })}
-            />
-          </label>
+          <div className="yearrange">
+            <span className="yearlabels">From <strong>{filters.ymin}</strong> to <strong>{filters.ymax}</strong></span>
+            <div className="dualslider">
+              <div
+                className="dualslider-fill"
+                style={{
+                  left: `${((filters.ymin - YEAR_MIN) / (YEAR_MAX - YEAR_MIN)) * 100}%`,
+                  right: `${100 - ((filters.ymax - YEAR_MIN) / (YEAR_MAX - YEAR_MIN)) * 100}%`,
+                }}
+              />
+              <input
+                type="range" aria-label="From year"
+                min={YEAR_MIN} max={YEAR_MAX} value={filters.ymin} disabled={roundQueue !== null}
+                onChange={(e) => updateFilters({ ymin: Math.min(Number(e.target.value), filters.ymax) })}
+              />
+              <input
+                type="range" aria-label="To year"
+                min={YEAR_MIN} max={YEAR_MAX} value={filters.ymax} disabled={roundQueue !== null}
+                onChange={(e) => updateFilters({ ymax: Math.max(Number(e.target.value), filters.ymin) })}
+              />
+            </div>
+          </div>
           <button onClick={() => { setFilters(DEFAULT_FILTERS); setActivePackage(null) }} disabled={roundQueue !== null}>Reset</button>
           <span className="muted">{pool.length} / {GAMES.length} levels{activePackage ? ` · 📦 ${activePackage}` : ''}{roundQueue !== null ? ' · locked in round' : ''}</span>
         </div>
@@ -938,39 +940,32 @@ export default function App() {
           ))}
         </div>
 
-        <PixelCanvas key={game.id} srcs={shots} startAt={shotPos} resolution={LEVELS[levelIdx].size} seed={game.id} onShow={(idx) => shotHistRef.current.set(gameId, idx)} onAspect={setShotAspect} />
+        <div className={`shotwrap${solved ? ' solved' : ''}`}>
+          <PixelCanvas key={`canvas-${game.id}`} srcs={shots} startAt={shotPos} resolution={LEVELS[levelIdx].size} seed={game.id} onShow={(idx) => shotHistRef.current.set(gameId, idx)} onAspect={setShotAspect} />
+          {solved && <div className="correct-flash" aria-hidden="true">✓</div>}
+        </div>
         <div className="meta">
           <span>Level: <strong>{gridLabel(LEVELS[levelIdx].size, shotAspect)}</strong></span>
           <span>Worth: <strong>{points} pts</strong></span>
-          <span className="muted">Attempts: {attempts}</span>
+          <span className="muted">Attempts: <span key={attempts} className="attempts-pop">{attempts}</span></span>
         </div>
 
         {!finished ? (
-          <div className="guesswrap">
-          <form
-            className="guessrow"
-            onSubmit={(e) => {
-              e.preventDefault()
-              submitGuess()
-            }}
-          >
-            <input
-              value={guess}
-              onChange={(e) => setGuess(e.target.value)}
-              placeholder="Which game is this?"
-              autoFocus
-              autoComplete="off"
-            />
-            <button type="submit" className="primary">Guess</button>
-            <button type="button" onClick={revealMore} disabled={levelIdx >= LEVELS.length - 1}>
-              Reveal more (−pts)
-            </button>
-            <button type="button" onClick={takeHint} disabled={hintStage >= 2} title={hintStage === 0 ? 'Reveal the release year (halves points)' : 'Reveal the title shape (halves points again)'}>
-              {hintStage === 0 ? 'Hint: year (−50%)' : hintStage === 1 ? 'Hint: title (−50%)' : 'Hints used'}
-            </button>
-          </form>
-          <GuessSuggestions suggestions={guessSuggestions} onPick={setGuess} />
-          </div>
+          <GuessForm
+            key={`guess-${game.id}`}
+            onSubmit={submitGuess}
+            shakeKey={shakeTick}
+            actions={
+              <>
+                <button type="button" onClick={revealMore} disabled={levelIdx >= LEVELS.length - 1}>
+                  Reveal more (−pts)
+                </button>
+                <button type="button" onClick={takeHint} disabled={hintStage >= 2} title={hintStage === 0 ? 'Reveal the release year (halves points)' : 'Reveal the title shape (halves points again)'}>
+                  {hintStage === 0 ? 'Hint: year (−50%)' : hintStage === 1 ? 'Hint: title (−50%)' : 'Hints used'}
+                </button>
+              </>
+            }
+          />
         ) : (
           <div className="result">
             {solved ? (

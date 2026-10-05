@@ -238,6 +238,9 @@ npm run build        # static files in dist/
 Upload `dist/*` to any static host (Netlify, Vercel, GitHub Pages, Strato via
 FTP, …). Serve over **https** (Discord unfurl + clipboard API need it).
 No server component, no env vars, no database. Share links are plain URLs.
+`dist/` holds only the app (~1.1 MB JS + index.html): `public/screenshots/`
+is dev-only fallback and is NOT copied on build (the game runs off IGDB CDN
+remotes — see `npm run audit:remotes`), so deploys stay small.
 
 ## 7. Testing checklist
 
