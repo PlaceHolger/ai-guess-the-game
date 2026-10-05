@@ -30,7 +30,8 @@ async function main() {
       const str = (n) => b.match(new RegExp(`"?${n}"?\\s*:\\s*(['"])(.*?)\\1`))?.[2] ?? ''
       const ig = Number(b.match(/igdbId:\s*(\d+)/)?.[1] ?? b.match(/"igdbId"\s*:\s*(\d+)/)?.[1]) || null
       const title = str('title')
-      const year = Number(str('year')) || undefined
+      // year is a bare number, not a quoted string (str() can never match it)
+      const year = Number(b.match(new RegExp(`"?year"?\\s*:\\s*(\\d+)`))?.[1]) || undefined
       if (title) targets.set(id, { file: p, id, title, year, igdbId: ig })
     }
   }

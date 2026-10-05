@@ -21,9 +21,9 @@ screenshots come later (§4). Production build: `npm run build` (output `dist/`)
 
 ## 2. How the game works (30-second version)
 
-- One level = one game. Image starts at **4×4 pixels** (1000 pts), each
-  **Reveal more** step (8×8 → 16×16 → 32×32 → 64×64 → **96×96** → full)
-  lowers the points (500 / 250 / 125 / 60 / 40 / 20). Going back to a blurrier
+- One level = one game. Image starts at **16 wide** (500 pts), each
+  **Reveal more** step (16 → 32 → 48 → 64 → 96 → **full**) lowers the points
+  (500 / 400 / 300 / 200 / 100 / 50). Going back to a blurrier
   view does **not** restore points.
 - Guessing is fuzzy (`src/lib/fuzzy.ts`): typos, regional titles and
   abbreviations (`gta 5`, `ff7`) accepted. Rules: an **exact** title/alias
@@ -120,6 +120,26 @@ npm run import -- --enrich           # fill blanks only, never overwrites
 fails loudly with line numbers on bad rows). **Your title is always the
 display title** — IGDB only donates missing facts; your release year picks
 which game a fuzzy name means (*Lords of the Fallen* 2014 vs 2023).
+
+### 3c. Data conventions (read before editing entries)
+
+- **Year = original release date (JP where it differs):** Zelda 1986, Wind
+  Waker 2002, Tetris 1984. Don't "fix" these to US/EU dates.
+- **`franchise` may be a deliberate cross-franchise tag**, not factual series
+  membership (e.g. Soulslike covers FromSoftware souls *and* Hollow Knight,
+  Jedi: Survivor, Lies of P — that's what the Soulslikes package is built on).
+- **Genre labels are messy by design:** raw IGDB genres for auto entries, the
+  hand list's own words for hand entries. Don't normalize them per-item.
+- **Alias policy:** aliases must resolve to *this* entry and must never be
+  another game's title. Regional/acronym titles are wanted; stub acronyms
+  shorter than 3 letters are pruned (`prune-aliases.mjs`, importer floor).
+- **Duplicate policy:** one entry per game; a remake gets its own entry *and*
+  its own art (sharing a shot between entries makes a level unsolvable).
+- **Ids are frozen** (share links + screenshot filenames): never rename an id.
+  Grandfathered exception: `lords-of-the-fallen-2023` (renamed before this
+  rule). `lords-of-the-fallen` (2014) vs `lords-of-the-fallen-2023` are two
+  genuinely different games sharing a title — never collapse them; both
+  deliberately carry alias `lf`.
 
 ## 4. Screenshots: sources and fetchers
 
@@ -241,6 +261,14 @@ No server component, no env vars, no database. Share links are plain URLs.
 `dist/` holds only the app (~1.1 MB JS + index.html): `public/screenshots/`
 is dev-only fallback and is NOT copied on build (the game runs off IGDB CDN
 remotes — see `npm run audit:remotes`), so deploys stay small.
+
+## 6b. When a script went wrong
+
+Data files are committed, so recovery is `git checkout -- <file>` (or
+`git status` to see what changed first). `games.hand.ts` is generated — never
+edit it; restore via `npm run data:build`. Local screenshots are gitignored
+and re-fetchable (`fetch:screenshots`, `fetch:retro`). Bulk removals always
+preview with `--dry` first and apply with `--yes`.
 
 ## 7. Testing checklist
 

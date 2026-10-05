@@ -18,7 +18,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { DATA_DIR, OUT_DIR, normTitle, readCatalog, sleep } from './igdb-lib.mjs'
+import { DATA_DIR, OUT_DIR, isHandId, normTitle, readCatalog, setTsvCell, sleep } from './igdb-lib.mjs'
 
 // our platform -> libretro-thumbnails repo (only ones confirmed to exist)
 const SYSTEMS = {
@@ -205,8 +205,20 @@ async function main() {
     const dir = path.join(OUT_DIR, String(g.year))
     await mkdir(dir, { recursive: true })
     await writeFile(path.join(dir, `${g.id}.png`), buf)
-    const src = entryFile(g.id)
-    if (src) await patchScreenshotPath(src, g.id, g.year, 'jpg', 'png')
+    // hand source of truth first (generated .ts gets reverted by data:build)
+    if (await isHandId(g.id)) {
+      const row = readFileSync(path.join(DATA_DIR, 'games.tsv'), 'utf8')
+        .split('\n')
+        .find((l) => l.split('\t')[0] === g.id)
+        ?.split('\t')
+      const shot = row?.[9] ?? ''
+      if (shot.includes(`/${g.id}.jpg`)) {
+        await setTsvCell(g.id, 9, shot.replace(`/${g.id}.jpg`, `/${g.id}.png`))
+      }
+    } else {
+      const src = entryFile(g.id)
+      if (src) await patchScreenshotPath(src, g.id, g.year, 'jpg', 'png')
+    }
     notes.push(`- ${g.id}: "${hit.file}" via libretro-thumbnails/${hit.repo}`)
   }
   if (notes.length && !dry) {

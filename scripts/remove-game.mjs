@@ -3,7 +3,8 @@
 //   npm run remove -- --missing --auto-only [--dry]        # all shot-less AUTO entries
 //   npm run remove -- --missing --include-hand [--dry]     # ...plus hand/custom ones
 // --dry only lists. Bulk mode refuses to run without one of the scope flags
-// so a typo can't wipe your hand-curated list.
+// so a typo can't wipe your hand-curated list, and applying needs --yes.
+// (--missing treats CDN-hotlinked entries as present: local files are optional.)
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
@@ -55,6 +56,10 @@ async function main() {
       process.exit(1)
     }
     const files = autoOnly ? ['games.auto.ts'] : FILES
+    if (!dry && !raw.includes('--yes')) {
+      console.error('Bulk remove without --dry needs --yes: preview with --dry, then re-run with --yes to apply.')
+      process.exit(1)
+    }
     let total = 0
     for (const f of files) {
       const p = path.join(DATA_DIR, f)
@@ -64,6 +69,10 @@ async function main() {
       for (const b of blocksOf(t)) {
         const id = blockId(b)
         if (!id) continue
+        // CDN-hotlinked entries are playable with no local files (screenshots
+        // are gitignored) — never classify them as shot-less.
+        if (/"?remote"?\s*:\s*['"]https?:/.test(b)) continue
+        if (/"?remoteAlts"?\s*:\s*\[[^\]]*https?:/.test(b)) continue
         if (blockShots(b).some((fp) => existsSync(fp))) continue
         gone.push(id)
       }
@@ -82,7 +91,7 @@ async function main() {
   }
 
   if (!raw.includes('--id')) {
-    console.error('Usage: npm run remove -- --id <game-id> [--keep-shot]  OR  --missing --auto-only|--include-hand [--dry]')
+    console.error('Usage: npm run remove -- --id <game-id> [--keep-shot]  OR  --missing --auto-only|--include-hand [--dry] [--yes]')
     process.exit(1)
   }
   const id = raw[raw.indexOf('--id') + 1]
@@ -96,6 +105,18 @@ async function main() {
     if (next === null) continue
     if (!dry) await writeFile(p, next)
     console.log(`${dry ? 'would remove' : 'removed'} entry "${id}" from ${f}`)
+  }
+
+  // Hand entries live in games.tsv (games.hand.ts regenerates on every
+  // build): removing only the generated block lets the level come back.
+  {
+    const p = path.join(DATA_DIR, 'games.tsv')
+    const lines = (await readFile(p, 'utf8')).split('\n')
+    const kept = lines.filter((l) => l.split('\t')[0] !== id)
+    if (kept.length !== lines.length) {
+      if (!dry) await writeFile(p, kept.join('\n'))
+      console.log(`${dry ? 'would remove' : 'removed'} TSV row for "${id}"`)
+    }
   }
 
   if (!keepShot && !dry) {

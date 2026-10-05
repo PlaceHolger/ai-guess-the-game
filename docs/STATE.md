@@ -10,7 +10,7 @@ Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
 
 ## What works
 
-- **Core loop**: pixelated screenshot (4x4 to full), fuzzy guessing with
+- **Core loop**: pixelated screenshot (16 wide to full), fuzzy guessing with
   typo/alias/regional-title tolerance, ambiguity prompts, close-guess
   feedback, wrong-game redirects ("That is Risen - same developer!"),
   developer/publisher nudges, two-step hints (year, then title shape,

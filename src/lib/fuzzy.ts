@@ -117,6 +117,37 @@ export interface GuessResult {
   matchedVia?: string
 }
 
+/** Pre-normalized catalog for autocomplete: titles + aliases normalized once
+ *  per array identity instead of on every keystroke (E1). */
+export interface NormEntry {
+  game: GameEntry
+  title: string
+  aliases: string[]
+}
+const normCache = new WeakMap<GameEntry[], NormEntry[]>()
+export function normalizedEntries(games: GameEntry[]): NormEntry[] {
+  let e = normCache.get(games)
+  if (!e) {
+    e = games.map((g) => ({ game: g, title: normalize(g.title), aliases: g.aliases.map((a) => normalize(a)) }))
+    normCache.set(games, e)
+  }
+  return e
+}
+
+/** Suggestion matches for a free-text query: title or alias contains it. */
+export function suggestMatches(games: GameEntry[], query: string, exclude?: Set<string>): GameEntry[] {
+  const q = normalize(query.trim())
+  if (q.length < 2) return []
+  return normalizedEntries(games)
+    .filter(
+      (e) =>
+        (!exclude || !exclude.has(e.game.id)) &&
+        (e.title.includes(q) || e.aliases.some((a) => a.includes(q))),
+    )
+    .map((e) => e.game)
+    .slice(0, 8)
+}
+
 function typoThreshold(len: number): number {
   if (len <= 4) return 1
   if (len <= 8) return 2

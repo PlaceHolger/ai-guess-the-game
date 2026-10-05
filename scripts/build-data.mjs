@@ -104,6 +104,36 @@ async function main() {
   const rows = parseTsv(await readFile(src, 'utf8'))
   await writeFile(dest, emitTs(rows))
   console.log(`games.tsv: ${rows.length} rows -> ${path.relative(ROOT, dest)}`)
+  await buildSales()
+}
+
+// sales.tsv (id/unitsSold/source, from fetch:sales) -> sales.ts lookup map.
+// Optional input: always emits a valid (possibly empty) module so the app
+// and tests never depend on the fetch having run.
+async function buildSales() {
+  const IN = path.join(ROOT, 'src', 'data', 'sales.tsv')
+  const OUTS = path.join(ROOT, 'src', 'data', 'sales.ts')
+  const found = {}
+  if (existsSync(IN)) {
+    const lines = (await readFile(IN, 'utf8')).split('\n')
+    lines.forEach((line, i) => {
+      if (!i || !line.trim()) return
+      const [id, unitsRaw, source] = line.split('\t')
+      const units = Number(unitsRaw)
+      if (!id || !/^[a-z0-9-]+$/.test(id)) throw new Error(`sales.tsv line ${i + 1}: bad id "${id}"`)
+      if (!Number.isInteger(units) || units <= 0) throw new Error(`sales.tsv line ${i + 1}: bad units "${unitsRaw}"`)
+      if (!source) throw new Error(`sales.tsv line ${i + 1}: missing source`)
+      if (found[id] && found[id].units !== units) throw new Error(`sales.tsv line ${i + 1}: conflicting figures for "${id}"`)
+      if (!found[id] || units > found[id].units) found[id] = { units, source }
+    })
+  }
+  const body = Object.entries(found)
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([id, r]) => `  ${JSON.stringify(id)}: { units: ${r.units}, source: ${JSON.stringify(r.source)} },`)
+    .join('\n')
+  await writeFile(OUTS, `// GENERATED from sales.tsv — do not edit (run npm run fetch:sales).\n` +
+    `export const SALES: Record<string, { units: number; source: string }> = {\n${body}\n}\n`)
+  console.log(`sales.tsv: ${Object.keys(found).length} rows -> ${path.relative(ROOT, OUTS)}`)
 }
 
 const isMain = (process.argv[1] ?? '').replace(/\\/g, '/').endsWith('scripts/build-data.mjs')

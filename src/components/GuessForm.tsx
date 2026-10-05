@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import GuessSuggestions from './GuessSuggestions'
-import { GAMES, type GameEntry } from '../data/games'
-import { normalize } from '../lib/fuzzy'
+import { GAMES } from '../data/games'
+import { suggestMatches } from '../lib/fuzzy'
 
 interface Props {
   /** called with the raw input when the player submits */
@@ -34,13 +34,10 @@ export default function GuessForm({ onSubmit, actions, shakeKey = 0 }: Props) {
   }, [shakeKey])
   // Suggestions only; submit stays free-text (the fuzzy matcher still
   // handles typos and regional names the list can't spell).
-  const suggestions = useMemo(() => {
-    const q = normalize(value.trim())
-    if (q.length < 2 || dismissed) return [] as GameEntry[]
-    return GAMES.filter(
-      (x) => normalize(x.title).includes(q) || x.aliases.some((a) => normalize(a).includes(q)),
-    ).slice(0, 8)
-  }, [value, dismissed])
+  const suggestions = useMemo(
+    () => (dismissed ? [] : suggestMatches(GAMES, value)),
+    [value, dismissed],
+  )
 
   return (
     <div className="guesswrap">

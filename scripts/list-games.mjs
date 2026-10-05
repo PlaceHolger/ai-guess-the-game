@@ -13,7 +13,9 @@ for (const line of tsv.split('\n').slice(1)) {
   rows.push({ id: c[0], title: c[1], year: Number(c[2]), src: 'hand' })
 }
 for (const f of ['games.auto.ts', 'games.custom.ts']) {
-  const t = await readFile(path.join(ROOT, 'src', 'data', f), 'utf8').catch(() => '')
+  const raw = await readFile(path.join(ROOT, 'src', 'data', f), 'utf8').catch(() => '')
+  // commented-out examples (custom.ts) must not parse as entries
+  const t = raw.split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n')
   for (const m of t.matchAll(/\{[^{}]*\}/g)) {
     const b = m[0]
     if (b.trimStart().startsWith('//')) continue

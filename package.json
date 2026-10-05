@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "fetch:screenshots": "node scripts/fetch-igdb.mjs",
     "fetch:retro": "node scripts/fetch-retro.mjs",
+    "fetch:sales": "node scripts/fetch-sales.mjs",
     "import": "node scripts/import-igdb.mjs",
     "add-custom": "node scripts/add-custom.mjs",
     "audit": "node scripts/audit.mjs",

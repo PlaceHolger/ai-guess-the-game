@@ -7,6 +7,32 @@ export const ROOT = path.resolve(process.cwd())
 export const DATA_DIR = path.join(ROOT, 'src', 'data')
 export const OUT_DIR = path.join(ROOT, 'public', 'screenshots')
 
+/** Hand-list membership: games.tsv is the source of truth for these ids —
+ *  edits must go to the TSV row, never to generated games.hand.ts (which
+ *  data:build overwrites on every dev/build). */
+export async function isHandId(id) {
+  try {
+    const tsv = await readFile(path.join(DATA_DIR, 'games.tsv'), 'utf8')
+    return tsv.split('\n').some((l) => l.split('\t')[0] === id)
+  } catch {
+    return false
+  }
+}
+
+/** Rewrite one TSV cell (0-based column index) for a hand id. */
+export async function setTsvCell(id, col, value) {
+  const p = path.join(DATA_DIR, 'games.tsv')
+  const lines = (await readFile(p, 'utf8')).split('\n')
+  const i = lines.findIndex((l) => l.split('\t')[0] === id)
+  if (i < 0) return false
+  const cells = lines[i].split('\t')
+  while (cells.length <= col) cells.push('')
+  cells[col] = value
+  const { writeFile } = await import('node:fs/promises')
+  await writeFile(p, lines.join('\n'))
+  return true
+}
+
 export function loadDotEnv() {
   const p = path.join(ROOT, '.env')
   if (!existsSync(p)) return Promise.resolve({})

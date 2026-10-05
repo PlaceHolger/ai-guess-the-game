@@ -1,7 +1,9 @@
 // Audit the pool: entries without screenshots, orphan files, byte-identical
-// duplicate shots, suspicious metadata. Read-only, except --fix. Usage:
-//   npm run audit                       # full report
+// duplicate shots, shared CDN shots, suspicious metadata. Read-only, except --fix. Usage:
+//   npm run audit                       # full report (exit 1 on findings, except exotics)
 //   npm run audit -- --year 1990        # single year folder focus
+//   npm run audit -- --strict           # exotic candidates also fail the run
+//   npm run audit -- --shared-remote    # fast CI gate: shared CDN shots only
 //   npm run audit -- --dupes [--fix]    # only the duplicate check; --fix deletes
 //                                       # dupes (keeps first) + compacts entries
 import { readdirSync, existsSync, readFileSync } from 'node:fs'
@@ -46,6 +48,12 @@ function groupByGame(disk, ids) {
 async function compactAlts(id, keepRels) {
   // keepRels: remaining "screenshots/<year>/..." paths for slots >= 2
   const { readFile, writeFile } = await import('node:fs/promises')
+  // hand source of truth first (generated .ts gets reverted by data:build)
+  const { isHandId, setTsvCell } = await import('./igdb-lib.mjs')
+  if (await isHandId(id)) {
+    await setTsvCell(id, 10, keepRels.join('|'))
+    return 'games.tsv'
+  }
   const arr = `[${keepRels.map((a) => `'${a}'`).join(', ')}]`
   for (const f of ['games.hand.ts', 'games.ts', 'games.auto.ts', 'games.custom.ts']) {
     const p = path.join(DATA_DIR, f)
@@ -62,9 +70,40 @@ async function compactAlts(id, keepRels) {
   return null
 }
 
+// commented-out examples (custom.ts) must never parse as entries
+const stripComments = (t) => t.split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n')
+
 async function main() {
   const raw = process.argv.slice(2)
   const yearFilter = raw.includes('--year') ? String(raw[raw.indexOf('--year') + 1]) : null
+  const strict = raw.includes('--strict')
+  const onlyDupes = raw.includes('--dupes')
+  let failed = false
+  const { readFile } = await import('node:fs/promises')
+
+  // Fast CI-friendly gate: shared CDN shots only, no disk walk, no network.
+  if (raw.includes('--shared-remote')) {
+    const urlUsers = new Map()
+    for (const f of ['games.hand.ts', 'games.auto.ts', 'games.custom.ts']) {
+      const p = path.join(DATA_DIR, f)
+      if (!existsSync(p)) continue
+      const t = stripComments(await readFile(p, 'utf8'))
+      for (const m of t.matchAll(/\{[^{}]*\}/g)) {
+        const b = m[0]
+        const id = b.match(/id:\s*'([^']+)'/)?.[1] ?? b.match(/"id"\s*:\s*"([^"]+)"/)?.[1]
+        if (!id || (yearFilter && !b.includes(yearFilter))) continue
+        for (const um of b.matchAll(/https:\/\/images\.igdb\.com[^'"]+/g)) {
+          if (!urlUsers.has(um[0])) urlUsers.set(um[0], new Set())
+          urlUsers.get(um[0]).add(id)
+        }
+      }
+    }
+    const shared = [...urlUsers].filter(([, ids]) => ids.size > 1)
+    console.log(`shared remote shots: ${shared.length}`)
+    for (const [u, ids] of shared.slice(0, 30)) console.log(`  ${u.slice(-22)} <- ${[...ids].join(' <-> ')}`)
+    if (shared.length) process.exitCode = 1
+    return
+  }
 
   const catalog = await readCatalog()
   const byId = new Map()
@@ -88,7 +127,6 @@ async function main() {
   if (existsSync(walkRoot)) walk(walkRoot)
 
   // entries -> expected paths (need screenshot field: re-read raw blocks)
-  const { readFile } = await import('node:fs/promises')
   // entries -> expected shot paths. A level counts as missing only when NONE
   // of its shots exist: deleting one bad screenshot promotes the next
   // alternate automatically (PixelCanvas fallback chain).
@@ -104,7 +142,7 @@ async function main() {
   for (const f of ['games.ts', 'games.hand.ts', 'games.auto.ts', 'games.custom.ts']) {
     const p = path.join(DATA_DIR, f)
     if (!existsSync(p)) continue
-    const t = await readFile(p, 'utf8')
+    const t = stripComments(await readFile(p, 'utf8'))
     for (const m of t.matchAll(/\{[^{}]*\}/g)) {
       const b = m[0]
       const id = b.match(/id:\s*'([^']+)'/)?.[1] ?? b.match(/"id"\s*:\s*"([^"]+)"/)?.[1]
@@ -120,6 +158,7 @@ async function main() {
   const missing = missingIds.map(([id, rels]) => [rels[0], id])
   const orphans = [...disk.keys()].filter((d) => !expected.has(d))
 
+  if (!onlyDupes) {
   console.log(`entries: ${expected.size} | files: ${disk.size}`)
   console.log(`\n-- entries WITHOUT screenshot (${missing.length}) --`)
   for (const [rel, id] of missing.slice(0, 50)) console.log(`  ${rel}  (${id})`)
@@ -127,6 +166,8 @@ async function main() {
   console.log(`\n-- files WITHOUT entry / orphans (${orphans.length}) --`)
   for (const o of orphans.slice(0, 30)) console.log(`  ${o}`)
   if (orphans.length > 30) console.log(`  ... +${orphans.length - 30} more`)
+  }
+  if (!onlyDupes && (missing.length || orphans.length)) failed = true
 
   // byte-identical duplicates within one game's files (same upload twice)
   const fix = raw.includes('--fix')
@@ -166,13 +207,39 @@ async function main() {
   }
   if (!dupeFiles) console.log('\n-- duplicates: none --')
   else if (!fix) console.log(`\n${dupeFiles} duplicate files. Re-run with --fix to delete (keeps first) + compact entries.`)
+  if (dupeFiles && !fix) failed = true
+
+  // shared CDN shots: two entries serving the identical URL means one level
+  // shows the other game's art (unsolvable-as-scored). Zero tolerance.
+  const urlUsers = new Map()
+  for (const f of ['games.ts', 'games.hand.ts', 'games.auto.ts', 'games.custom.ts']) {
+    const p = path.join(DATA_DIR, f)
+    if (!existsSync(p)) continue
+    const t = stripComments(await readFile(p, 'utf8'))
+    for (const m of t.matchAll(/\{[^{}]*\}/g)) {
+      const b = m[0]
+      const id = b.match(/id:\s*'([^']+)'/)?.[1] ?? b.match(/"id"\s*:\s*"([^"]+)"/)?.[1]
+      if (!id || (yearFilter && !b.includes(yearFilter))) continue
+      for (const um of b.matchAll(/https:\/\/images\.igdb\.com[^'"]+/g)) {
+        if (!urlUsers.has(um[0])) urlUsers.set(um[0], new Set())
+        urlUsers.get(um[0]).add(id)
+      }
+    }
+  }
+  const shared = [...urlUsers].filter(([, ids]) => ids.size > 1)
+  if (!onlyDupes) {
+  console.log(`\n-- shared remote shots (${shared.length}) --`)
+  for (const [u, ids] of shared.slice(0, 30)) console.log(`  ${u.slice(-22)} <- ${[...ids].join(' <-> ')}`)
+  if (shared.length > 30) console.log(`  ... +${shared.length - 30} more`)
+  }
+  if (!onlyDupes && shared.length) failed = true
 
   // suspicious metadata flags (bulk-import heuristics worth a human look)
   const flags = []
   for (const f of ['games.auto.ts']) {
     const p = path.join(DATA_DIR, f)
     if (!existsSync(p)) continue
-    const t = await readFile(p, 'utf8')
+    const t = stripComments(await readFile(p, 'utf8'))
     for (const m of t.matchAll(/\{[^{}]*\}/g)) {
       const b = m[0]
       const id = (b.match(/"id"\s*:\s*"([^"]+)"/) || [])[1]
@@ -181,9 +248,11 @@ async function main() {
       if (/"genre"\s*:\s*"Action"/.test(b)) flags.push(`${id}: generic genre Action`)
     }
   }
+  if (!onlyDupes) {
   console.log(`\n-- review flags (${flags.length}) --`)
   for (const fl of flags.slice(0, 40)) console.log(`  ${fl}`)
   if (flags.length > 40) console.log(`  ... +${flags.length - 40} more`)
+  }
 
   // exotic/obscure candidates: anachronistic platform-era, unknown publisher,
   // future-dated. Review these when trimming homebrews and unguessables.
@@ -202,7 +271,7 @@ async function main() {
   for (const f of ['games.ts', 'games.hand.ts', 'games.auto.ts', 'games.custom.ts']) {
     const p = path.join(DATA_DIR, f)
     if (!existsSync(p)) continue
-    const t = await readFile(p, 'utf8')
+    const t = stripComments(await readFile(p, 'utf8'))
     for (const m of t.matchAll(/\{[^{}]*\}/g)) {
       const b = m[0]
       const id = b.match(/id:\s*'([^']+)'/)?.[1] ?? b.match(/"id"\s*:\s*"([^"]+)"/)?.[1]
@@ -221,10 +290,18 @@ async function main() {
   }
   const seenEx = new Set()
   const uniqExotic = exotic.filter((e) => !seenEx.has(e) && (seenEx.add(e), true))
+  if (!onlyDupes) {
   console.log(`\n-- exotic candidates (${uniqExotic.length}) --`)
   for (const e of uniqExotic.slice(0, 60)) console.log(`  ${e}`)
   if (uniqExotic.length > 60) console.log(`  ... +${uniqExotic.length - 60} more`)
+  }
   console.log('\nRemove bad levels with: npm run remove -- --id <game> [--keep-shot]')
+  // CI gate: missing shots, orphans, dupes and shared remotes fail the run.
+  // Exotic candidates (future dates etc.) fail only with --strict.
+  // (--dupes mode judges duplicates only.)
+  if (!onlyDupes && (missing.length || orphans.length || shared.length)) process.exitCode = 1
+  if (dupeFiles) process.exitCode = 1
+  if (strict && uniqExotic.length) process.exitCode = 1
 }
 
 main()

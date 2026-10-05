@@ -9,3 +9,5 @@ public/screenshots/*/*.png
 public/screenshots/*.webp
 public/screenshots/*/*.webp
 tsconfig.tsbuildinfo
+# agent worktrees (other sessions' scratch checkouts)
+.kilo/

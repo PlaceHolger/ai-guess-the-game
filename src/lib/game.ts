@@ -1,4 +1,5 @@
 import { GAMES, type GameEntry } from '../data/games'
+import { SALES } from '../data/sales'
 
 export interface PixelLevel {
   /** grid width in cells (height follows the shot aspect), 0 = full resolution */
@@ -7,8 +8,8 @@ export interface PixelLevel {
 }
 
 // Reveal tiers by grid width: 16 -> 32 -> 48 -> 64 -> 96 -> full. The grid
-// height follows the shot aspect (16x9 tiers on widescreen); points fall
-// linearly per reveal.
+// height follows the shot aspect (16x9 tiers on widescreen); points drop
+// 500 / 400 / 300 / 200 / 100 / 50 per reveal.
 export const LEVELS: PixelLevel[] = [
   { size: 16, points: 500 },
   { size: 32, points: 400 },
@@ -42,12 +43,14 @@ export function earnedPoints(levelIdx: number, hintStage: number): number {
 }
 
 export function randomGame(excludeId?: string): GameEntry {
-  return randomFrom(GAMES, excludeId)
+  // GAMES is compile-time non-empty (data integrity test enforces entries)
+  return randomFrom(GAMES, excludeId)!
 }
 
 /** Random entry from a filtered pool (e.g. active category filters). */
-export function randomFrom(pool: GameEntry[], excludeId?: string): GameEntry {
+export function randomFrom(pool: GameEntry[], excludeId?: string): GameEntry | undefined {
   const list = excludeId && pool.length > 1 ? pool.filter((g) => g.id !== excludeId) : pool
+  if (list.length === 0) return undefined
   return list[Math.floor(Math.random() * list.length)]
 }
 
@@ -134,10 +137,11 @@ export function roundLink(queue: string[], idx: number, shots?: Array<number | n
 }
 
 /** Resolve a ?round= link against the pool: ordered ids, clamped position,
- *  and per-game screenshot positions (null = rotation default). */
+ *  per-game screenshot positions (null = rotation default), and how many
+ *  codes named games no longer in the pool (removed, typo'd, older build). */
 export function findSharedRound(
   games: GameEntry[], code: string, idx: number,
-): { ids: string[]; pos: number; shots: Array<number | null> } | null {
+): { ids: string[]; pos: number; shots: Array<number | null>; dropped: number } | null {
   const parts = code.split(',').filter(Boolean)
   const ids: string[] = []
   const shots: Array<number | null> = []
@@ -150,7 +154,7 @@ export function findSharedRound(
     shots.push(Number.isInteger(n) && n >= 0 ? n : null)
   }
   if (ids.length === 0) return null
-  return { ids, pos: Math.min(Math.max(0, idx), ids.length - 1), shots }
+  return { ids, pos: Math.min(Math.max(0, idx), ids.length - 1), shots, dropped: parts.length - ids.length }
 }
 
 /** Pool context parsed from a share link (?game= must be present). Years
@@ -170,8 +174,25 @@ export interface SharedPoolPatch {
   label: string
 }
 
-export function parseSharedPool(sp: URLSearchParams, knownPackages: string[]): SharedPoolPatch | null {
-  if (!sp.has('game')) return null
+/** Facet values the current pool knows (for share-link validation). The
+ *  'RPG (all)'/'Shooter (all)' groups mirror GENRE_OPTIONS in App.tsx. */
+function knownFacets(): Record<'genres' | 'publishers' | 'platforms' | 'developers' | 'franchises', Set<string>> {
+  const genres = new Set<string>(['RPG (all)', 'Shooter (all)'])
+  const publishers = new Set<string>()
+  const platforms = new Set<string>(['Others'])
+  const developers = new Set<string>()
+  const franchises = new Set<string>()
+  for (const g of GAMES) {
+    genres.add(g.genre)
+    publishers.add(g.publisher)
+    for (const p of g.platforms) platforms.add(p)
+    developers.add(g.developer)
+    const f = franchiseOf(g)
+    if (f) franchises.add(f)
+  }
+  return { genres, publishers, platforms, developers, franchises }
+}
+export function parseSharedPool(sp: URLSearchParams, knownPackages: string[]): SharedPoolPatch | null {  if (!sp.has('game')) return null
   const pkg = sp.get('pkg')
   const pkgKnown = !!pkg && knownPackages.includes(pkg)
   const patch: SharedPoolPatch['patch'] = {}
@@ -181,8 +202,10 @@ export function parseSharedPool(sp: URLSearchParams, knownPackages: string[]): S
   const ymin = yminRaw === null ? NaN : Number(yminRaw)
   const ymax = ymaxRaw === null ? NaN : Number(ymaxRaw)
   if (Number.isInteger(ymin) && Number.isInteger(ymax)) {
-    patch.ymin = ymin
-    patch.ymax = ymax
+    const lo = Math.min(Math.max(ymin as number, YEAR_MIN), YEAR_MAX)
+    const hi = Math.min(Math.max(ymax as number, YEAR_MIN), YEAR_MAX)
+    patch.ymin = Math.min(lo, hi)
+    patch.ymax = Math.max(lo, hi)
   }
   const lists: Array<[string, 'genres' | 'publishers' | 'platforms' | 'developers' | 'franchises']> = [
     ['g', 'genres'],
@@ -192,8 +215,12 @@ export function parseSharedPool(sp: URLSearchParams, knownPackages: string[]): S
     ['fr', 'franchises'],
   ]
   let facetCount = 0
+  // Strip values the pool no longer knows (removed games, renamed facets):
+  // dropping just the unknown bits degrades to a slightly broader pool,
+  // while rejecting the link would lose the sender's intent entirely.
+  const known = knownFacets()
   for (const [param, key] of lists) {
-    const vals = sp.getAll(param)
+    const vals = sp.getAll(param).filter((v) => known[key].has(v))
     if (vals.length > 0) {
       patch[key] = vals
       facetCount += vals.length
@@ -333,7 +360,6 @@ const FRANCHISE_RULES: Array<[RegExp, string]> = [
   [/wizardry/i, 'Wizardry'],
   [/might and magic|heroes of might/i, 'Might and Magic'],
   [/tony hawk/i, 'Tony Hawk'],
-  [/need for speed/i, 'Need for Speed'],
 ]
 
 /** Explicit franchise first, else title rules, else null. */
@@ -343,6 +369,25 @@ export function franchiseOf(g: GameEntry): string | null {
     if (re.test(g.title)) return name
   }
   return null
+}
+
+/** Reported units sold for a game, if a published figure was joined. */
+export function salesFor(id: string): { units: number; source: string } | null {
+  return SALES[id] ?? null
+}
+
+/** Approximate display ("≈15M copies"): figures are lower bounds with no
+ *  as-of date, so never print false precision. */
+export function formatSales(units: number): string {
+  if (units >= 1_000_000) {
+    const m = units / 1_000_000
+    return `≈${Number.isInteger(m) ? String(m) : m.toFixed(1)}M copies`
+  }
+  if (units >= 1_000) {
+    const k = units / 1_000
+    return `≈${Number.isInteger(k) ? String(k) : k.toFixed(1)}k copies`
+  }
+  return `≈${units} copies`
 }
 
 /** Hand/custom entries default to popular; auto entries carry the vote flag. */
@@ -393,7 +438,7 @@ const SOLVED_KEY = 'gameguesser.solvedCount'
 const SEEN_KEY = 'gameguesser.seenGames'
 
 /** Persisted play history (solved or gave up): reloads don't wipe it, so
- *  peeking at a solution and replaying at 4x4 scores a capped repeat. */
+ *  peeking at a solution and replaying at 16 wide scores a capped repeat. */
 export function loadSeen(): Record<string, boolean> {
   try {
     return JSON.parse(localStorage.getItem(SEEN_KEY) ?? '{}') as Record<string, boolean>

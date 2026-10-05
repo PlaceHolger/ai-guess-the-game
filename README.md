@@ -1,7 +1,7 @@
 # Guess the Game — guess popular games from pixelated screenshots
 
-Start at **4×4 pixels** (1000 pts). Don't know it? Reveal **8×8 → 16×16 → 32×32 → 64×64 → 96×96 → full**
-for 500 / 250 / 125 / 60 / 40 / 20 pts. Near answers count: `final fantasy` is accepted for
+Start at **16 pixels wide** (500 pts). Don't know it? Reveal **16 → 32 → 48 → 64 → 96 → full**
+for 500 / 400 / 300 / 200 / 100 / 50 pts. Near answers count: `final fantasy` is accepted for
 *Final Fantasy VII*, `gta 5` for *Grand Theft Auto V*, typos included.
 
 **Rounds:** pick genre / publisher / developer / platform / franchise / year

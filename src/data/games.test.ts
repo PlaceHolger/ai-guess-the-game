@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GAMES, getGame } from './games'
+import { SALES } from './sales'
 import { normalize } from '../lib/fuzzy'
 
 describe('catalog integrity', () => {
@@ -37,6 +38,10 @@ describe('catalog integrity', () => {
     expect(getGame('tetris')?.title).toBe('Tetris')
     expect(getGame('no-such-game')).toBeUndefined()
     expect(getGame(null)).toBeUndefined()
+  })
+  it('every sales figure resolves to a real entry', () => {
+    for (const id of Object.keys(SALES)) expect(getGame(id), id).toBeDefined()
+    expect(Object.keys(SALES).length).toBeGreaterThan(0)
   })
   it('lists near-duplicates for manual review (informational)', () => {
     // same-year titles where one contains the other: potential double levels

@@ -196,7 +196,9 @@ function autoAliases(title) {
   const words = title.split(/\s+/)
   const stop = new Set(['the', 'of', 'and', 'a', 'an', 'in', 'on', 'for', 'to', 'with', 'vs'])
   const acr = words.filter((w) => w.length > 2 && !stop.has(w.toLowerCase())).map((w) => w[0]).join('').toLowerCase()
-  if (acr.length >= 2 && acr.length <= 5) out.add(acr)
+  // 2-letter acronyms ("lf", "ds") are noise now that autocomplete surfaces
+  // exact titles: too short to type deliberately, too broad to disambiguate.
+  if (acr.length >= 3 && acr.length <= 5) out.add(acr)
   for (const w of words) {
     const low = w.toLowerCase().replace(/[^a-z]/g, '')
     if (ROMAN[low]) out.add(words.map((x) => (x === w ? ROMAN[low] : x)).join(' ').toLowerCase())
@@ -225,7 +227,7 @@ const DROP_PLATFORMS = new Set(['AY-3-8606', 'PocketStation'])
 function canonFranchise(n) {
   let out = (n ?? '').replace(/^The\s+/i, '')
   out = out.replace(/^Mario Bros\.?$/, 'Mario').replace(/^Super Mario$/, 'Mario')
-  out = out.replace(/^The Legend of Zelda$/, 'Zelda')
+  out = out.replace(/^The Legend of Zelda$/, 'Zelda').replace(/^Legend of Zelda$/, 'Zelda')
   return out
 }
 
@@ -314,6 +316,24 @@ const BLANK = (v) => !v || /^unknown$/i.test(v)
 function fullMeta() {
   const out = new Map()
   const put = (id, e) => { if (id && !out.has(id)) out.set(id, { id, ...e }) }
+  // TSV first: it is the hand list's source of truth, and first-wins put()
+  // would otherwise hand enrich patching to generated games.hand.ts (which
+  // data:build silently reverts on every dev/build).
+  const tsv = path.join(DATA_DIR, 'games.tsv')
+  if (existsSync(tsv)) {
+    const lines = readFileSync(tsv, 'utf8').split('\n')
+    lines.forEach((line, i) => {
+      if (!i || !line.trim()) return
+      const c = line.split('\t')
+      if (c.length < 11) return
+      put(c[0].trim(), {
+        file: tsv, tsvLine: i,
+        title: c[1].trim(), year: Number(c[2]) || undefined,
+        genre: c[3].trim(), publisher: c[4].trim(), developer: c[5].trim(),
+        platforms: c[6].split('|').map((s) => s.trim()).filter(Boolean),
+      })
+    })
+  }
   for (const f of ['games.ts', 'games.hand.ts', 'games.auto.ts', 'games.custom.ts']) {
     const p = path.join(DATA_DIR, f)
     if (!existsSync(p)) continue
@@ -331,21 +351,6 @@ function fullMeta() {
         platforms: pm ? [...pm[1].matchAll(/['"]([^'"]+)['"]/g)].map((x) => x[1]) : [],
       })
     }
-  }
-  const tsv = path.join(DATA_DIR, 'games.tsv')
-  if (existsSync(tsv)) {
-    const lines = readFileSync(tsv, 'utf8').split('\n')
-    lines.forEach((line, i) => {
-      if (!i || !line.trim()) return
-      const c = line.split('\t')
-      if (c.length < 11) return
-      put(c[0].trim(), {
-        file: tsv, tsvLine: i,
-        title: c[1].trim(), year: Number(c[2]) || undefined,
-        genre: c[3].trim(), publisher: c[4].trim(), developer: c[5].trim(),
-        platforms: c[6].split('|').map((s) => s.trim()).filter(Boolean),
-      })
-    })
   }
   return out
 }

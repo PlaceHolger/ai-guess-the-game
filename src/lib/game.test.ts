@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
-import { LEVELS, discordChallengeText, discordResultText, earnedPoints, findSharedGame, findSharedRound, gameCode, gridLabel, levelLabel, parseSharedPool, platformHit, pointsForLevel, preferFresh, resolveShot, roundLink, shareLink, shotsFor, shuffle } from './game'
-import { GAMES } from '../data/games'
+import { LEVELS, YEAR_MAX, YEAR_MIN, discordChallengeText, discordResultText, earnedPoints, findSharedGame, findSharedRound, formatSales, gameCode, gridLabel, levelLabel, parseSharedPool, platformHit, pointsForLevel, preferFresh, randomFrom, resolveShot, roundLink, shareLink, shotsFor, shuffle } from './game'
+import { GAMES, getGame } from '../data/games'
 import type { GameEntry } from '../data/games'
 
 const g = (over: Partial<GameEntry> = {}): GameEntry => ({
@@ -133,6 +133,7 @@ describe('round links', () => {
       ids,
       pos: 1,
       shots: [null, null, null],
+      dropped: 0,
     })
     expect(findSharedRound(GAMES, 'zzzzzzz', 0)).toBeNull()
     expect(findSharedRound(GAMES, sp.get('round')!, 99)?.pos).toBe(2)
@@ -141,7 +142,15 @@ describe('round links', () => {
     const ids = ['tetris', 'doom']
     const sp = new URL(roundLink(ids, 0, [2, null])).searchParams
     expect(sp.get('round')).toMatch(/~2/)
-    expect(findSharedRound(GAMES, sp.get('round')!, 0)).toEqual({ ids, pos: 0, shots: [2, null] })
+    expect(findSharedRound(GAMES, sp.get('round')!, 0)).toEqual({ ids, pos: 0, shots: [2, null], dropped: 0 })
+  })
+  it('findSharedRound counts codes that no longer resolve', () => {
+    const ids = ['tetris', 'doom']
+    const sp = new URL(roundLink(ids, 0, [null, null])).searchParams
+    const withBogus = `${sp.get('round')},zzzzzzz`
+    const parsed = findSharedRound(GAMES, withBogus, 0)!
+    expect(parsed.ids).toEqual(ids)
+    expect(parsed.dropped).toBe(1)
   })
   it('parseSharedPool ignores absent years (no 0-0) and reads shots', () => {
     const pkgs: string[] = ['SNES']
@@ -161,7 +170,46 @@ describe('round links', () => {
     expect(bad.pkg).toBeNull()
     expect(bad.patch.platforms).toEqual(['DOS'])
   })
-  it('platformHit matches direct, Others, and empty', () => {    expect(platformHit(['DOS'], [], ['Vectrex'])).toBe(true)
+  it('parseSharedPool strips unknown facet values but keeps the known ones', () => {
+    const pkgs: string[] = ['SNES']
+    const mixed = parseSharedPool(new URLSearchParams('game=abc&plat=DOS&plat=NopeBox&pub=NopeSoft'), pkgs)!
+    expect(mixed.patch.platforms).toEqual(['DOS'])
+    expect(mixed.patch.publishers).toBeUndefined()
+    const allBad = parseSharedPool(new URLSearchParams('game=abc&plat=NopeBox'), pkgs)
+    expect(allBad).toBeNull()
+  })
+  it('parseSharedPool clamps years into bounds and repairs inverted ends', () => {
+    const pkgs: string[] = ['SNES']
+    const wild = parseSharedPool(new URLSearchParams('game=abc&ymin=3000&ymax=1800'), pkgs)!
+    expect(wild.patch.ymin).toBe(YEAR_MIN)
+    expect(wild.patch.ymax).toBe(YEAR_MAX)
+    const flipped = parseSharedPool(new URLSearchParams('game=abc&ymin=2000&ymax=1990'), pkgs)!
+    expect(flipped.patch.ymin).toBe(1990)
+    expect(flipped.patch.ymax).toBe(2000)
+  })
+  it('randomFrom returns undefined on an empty pool instead of throwing on .id', () => {
+    expect(randomFrom([])).toBeUndefined()
+    expect(randomFrom([], 'x')).toBeUndefined()
+  })
+  it('shotsFor keeps a frozen order (share links index into it positionally)', () => {
+    expect(shotsFor(getGame('tetris')!)).toEqual([
+      'https://images.igdb.com/igdb/image/upload/t_1080p/scmhs5.jpg',
+      '/screenshots/1984/tetris.jpg',
+      'https://images.igdb.com/igdb/image/upload/t_1080p/scmhs6.jpg',
+      'https://images.igdb.com/igdb/image/upload/t_1080p/scmhs4.jpg',
+      '/screenshots/1984/tetris-2.jpg',
+      '/screenshots/1984/tetris-3.jpg',
+    ])
+  })
+  it('formatSales prints approximate figures without false precision', () => {
+    expect(formatSales(225000000)).toBe('≈225M copies')
+    expect(formatSales(82900000)).toBe('≈82.9M copies')
+    expect(formatSales(5000)).toBe('≈5k copies')
+    expect(formatSales(1500)).toBe('≈1.5k copies')
+    expect(formatSales(350)).toBe('≈350 copies')
+  })
+  it('platformHit matches direct, Others, and empty', () => {
+    expect(platformHit(['DOS'], [], ['Vectrex'])).toBe(true)
     expect(platformHit(['DOS'], ['DOS'], ['Vectrex'])).toBe(true)
     expect(platformHit(['DOS'], ['SNES'], ['Vectrex'])).toBe(false)
     expect(platformHit(['Vectrex'], ['Others'], ['Vectrex'])).toBe(true)

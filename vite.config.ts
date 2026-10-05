@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -32,5 +33,10 @@ export default defineConfig({
     // runs off CDN remotes, so don't copy it into dist/ on every build.
     // Dev keeps serving the folder; deploy uploads only the app (~1MB).
     copyPublicDir: false,
+  },
+  test: {
+    // agent worktrees live inside the repo root: never collect their tests
+    include: ['src/**/*.test.{ts,tsx}'],
+    exclude: ['.kilo/**', 'dist/**'],
   },
 })

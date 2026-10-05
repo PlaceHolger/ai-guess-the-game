@@ -3,7 +3,7 @@ import PixelCanvas from './components/PixelCanvas'
 import GuessSuggestions from './components/GuessSuggestions'
 import GuessForm from './components/GuessForm'
 import { GAMES, getGame } from './data/games'
-import { checkGuess, normalize, numeralsCovered, titleMask, tokenIncludes } from './lib/fuzzy'
+import { checkGuess, normalize, numeralsCovered, suggestMatches, titleMask, tokenIncludes } from './lib/fuzzy'
 import {
   LEVELS,
   AFFILIATE_TAG,
@@ -14,6 +14,7 @@ import {
   earnedPoints,
   findSharedGame,
   findSharedRound,
+  formatSales,
   franchiseOf,
   gridLabel,
   isGerman,
@@ -28,6 +29,7 @@ import {
   randomFrom,
   randomGame,
   roundLink,
+  salesFor,
   saveScore,
   shareLink,
   SharedPoolPatch,
@@ -64,6 +66,65 @@ interface RoundResult {
 interface CustomList {
   name: string
   ids: string[]
+}
+
+/** Finished round for the local history + personal best (localStorage). */
+interface RoundRecord {
+  date: string
+  label: string
+  games: number
+  solved: number
+  points: number
+}
+
+const HISTORY_KEY = 'gameguesser.roundHistory'
+const HISTORY_MAX = 30
+
+function loadHistory(): RoundRecord[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw) as RoundRecord[]
+    return Array.isArray(arr)
+      ? arr.filter((r) => r && typeof r.date === 'string' && typeof r.games === 'number').slice(0, HISTORY_MAX)
+      : []
+  } catch {
+    return []
+  }
+}
+
+/** A round parked in sessionStorage so a refresh offers resume instead of
+ *  silently abandoning results (and attempts). Versioned for forward safety. */
+const ROUND_KEY = 'gameguesser.round'
+
+interface StoredRound {
+  v: 1
+  uid: number
+  queue: string[]
+  results: Record<string, RoundResult>
+  gameId: string
+  listName: string | null
+}
+
+function loadStoredRound(): StoredRound | null {
+  try {
+    const raw = sessionStorage.getItem(ROUND_KEY)
+    if (!raw) return null
+    const s = JSON.parse(raw) as Partial<StoredRound>
+    if (!s || s.v !== 1 || !Array.isArray(s.queue) || s.queue.length === 0) return null
+    if (!s.queue.every((id) => typeof id === 'string' && getGame(id))) return null
+    if (typeof s.gameId !== 'string' || !s.queue.includes(s.gameId)) return null
+    return {
+      v: 1,
+      uid: typeof s.uid === 'number' ? s.uid : 0,
+      queue: s.queue,
+      results: s.results && typeof s.results === 'object' ? s.results : {},
+      gameId: s.gameId,
+      listName: typeof s.listName === 'string' ? s.listName : null,
+    }
+  } catch {
+    return null
+  }
 }
 
 const DECADES: Array<[string, number, number]> = [
@@ -121,8 +182,8 @@ const PACKAGES: PackageDef[] = [
   { label: 'Blizzard', patch: { publishers: ['Blizzard Entertainment'] } },
   { label: 'Nintendo 90s', patch: { publishers: ['Nintendo'], ymin: 1990, ymax: 1999 } },
   { label: 'Made in Germany', test: (g) => isGerman(g) },
-  { label: 'CryEngine', test: (g) => g.engine === 'CryEngine' },
-  { label: 'Unity', test: (g) => g.engine === 'Unity' },
+  { label: 'CryEngine', test: (g) => /^cryengine/i.test(g.engine ?? '') },
+  { label: 'Unity', test: (g) => /^unity/i.test(g.engine ?? '') },
   { label: 'Unreal', test: (g) => (g.engine ?? '').includes('Unreal') },
   { label: 'id Tech', test: (g) => (g.engine ?? '').includes('id Tech') },
 ]
@@ -145,6 +206,18 @@ function loadLists(): CustomList[] {
   return []
 }
 
+/** Clamp a year range into bounds and repair inverted ends (bad storage
+ *  or share-link values must never empty the pool into a 0-game play). */
+function clampYears(ymin: unknown, ymax: unknown): [number, number] {
+  const num = (v: unknown, fallback: number): number => {
+    const n = typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : fallback
+    return Math.min(Math.max(n, YEAR_MIN), YEAR_MAX)
+  }
+  const lo = num(ymin, YEAR_MIN)
+  const hi = num(ymax, YEAR_MAX)
+  return lo <= hi ? [lo, hi] : [hi, lo]
+}
+
 function loadFilters(): Filters {
   try {
     const raw = localStorage.getItem(FILTER_KEY)
@@ -156,6 +229,7 @@ function loadFilters(): Filters {
         if (typeof v === 'string' && v !== 'All') return [v]
         return []
       }
+      const [ymin, ymax] = clampYears(saved.ymin, saved.ymax)
       return {
         ...DEFAULT_FILTERS,
         ...saved,
@@ -164,6 +238,8 @@ function loadFilters(): Filters {
         platforms: arr(saved.platform ?? saved.platforms),
         developers: arr(saved.developer ?? saved.developers),
         franchises: arr(saved.franchise ?? saved.franchises),
+        ymin,
+        ymax,
       }
     }
   } catch {
@@ -203,11 +279,26 @@ export default function App() {
     if (!r) return null
     return findSharedRound(GAMES, r, Number(sp.get('i')) || 0)
   })
+  // Parked round from before a refresh: resumes silently (explicit share
+  // links win over it and clear it). Invalid snapshots fall back to null.
+  const [initialStored] = useState<StoredRound | null>(() => {
+    const sp = new URLSearchParams(window.location.search)
+    if (sp.has('game') || sp.get('round')) {
+      try {
+        sessionStorage.removeItem(ROUND_KEY)
+      } catch {
+        // ignore
+      }
+      return null
+    }
+    return loadStoredRound()
+  })
   const [gameId, setGameId] = useState<string>(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('game')
     return (
       (fromUrl && findSharedGame(GAMES, fromUrl)?.id) ??
       initialSharedRound?.ids[initialSharedRound.pos] ??
+      initialStored?.gameId ??
       randomGame().id
     )
   })
@@ -217,6 +308,9 @@ export default function App() {
   const [wrongs, setWrongs] = useState(0)
   const [hintStage, setHintStage] = useState(0)
   const [solved, setSolved] = useState(false)
+  // repeat (capped-score) status captured at solve time: the share text must
+  // report the capped points, and seen-history already contains the game after
+  const [solvedRepeat, setSolvedRepeat] = useState(false)
   const [gaveUp, setGaveUp] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   // increments on every non-solving submit: GuessForm shakes the button
@@ -242,13 +336,15 @@ export default function App() {
     const fromUrl = new URLSearchParams(window.location.search).get('game')
     return (fromUrl && findSharedGame(GAMES, fromUrl)?.id) ?? null
   })
-  const [roundQueue, setRoundQueue] = useState<string[] | null>(() => initialSharedRound?.ids ?? null)
-  const [roundResults, setRoundResults] = useState<Record<string, RoundResult>>({})
-  const [showSummary, setShowSummary] = useState(false)
+  const [roundQueue, setRoundQueue] = useState<string[] | null>(() => initialSharedRound?.ids ?? initialStored?.queue ?? null)
+  const [roundResults, setRoundResults] = useState<Record<string, RoundResult>>(() => initialStored?.results ?? {})
+  const [showSummary, setShowSummary] = useState(
+    () => initialStored !== null && initialStored.queue.every((id) => initialStored.results[id]),
+  )
   // Custom curated lists (own state + localStorage); rounds from a list keep
   // its order and can be replayed from the summary.
   const [lists, setLists] = useState<CustomList[]>(loadLists)
-  const [roundListName, setRoundListName] = useState<string | null>(null)
+  const [roundListName, setRoundListName] = useState<string | null>(() => initialStored?.listName ?? null)
   const [newListName, setNewListName] = useState('')
   const [editingList, setEditingList] = useState<string | null>(null)
   const [addQuery, setAddQuery] = useState('')
@@ -293,6 +389,7 @@ export default function App() {
   }
 
   const game = useMemo(() => getGame(gameId) ?? GAMES[0], [gameId])
+  const sales = useMemo(() => salesFor(game.id), [game])
   // Stable screenshot list per game: shotsFor builds a new array every
   // call, and a fresh identity re-ran the canvas load effect on each
   // keystroke (shared image handlers + reset loading timer each time).
@@ -317,7 +414,7 @@ export default function App() {
     () => (activePkg?.test ? filtered.filter(activePkg.test) : filtered),
     [filtered, activePkg],
   )
-  const pool = poolBase.length > 0 ? poolBase : filtered.length > 0 ? filtered : GAMES
+  const pool = poolBase
   const roundSolved = Object.values(roundResults).filter((r) => r.solved).length
   const roundPoints = Object.values(roundResults).reduce((s, r) => s + r.points, 0)
   const hardestTitle: string | undefined = (() => {
@@ -336,19 +433,23 @@ export default function App() {
   )
   const isSharedRound =
     roundQueue !== null && initialSharedRound !== null && roundQueue === initialSharedRound.ids
+  const sharedDropped = isSharedRound ? (initialSharedRound?.dropped ?? 0) : 0
+  // Share link pointing nowhere: unknown code (removed game, typo, older
+  // build). The game below is a random fallback — say so instead of letting
+  // the link look valid.
+  const unknownShared = useMemo(() => {
+    const sp = new URLSearchParams(window.location.search)
+    return sp.has('game') && initialSharedId === null && initialSharedRound === null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const finished = solved || gaveUp
   const points = earnedPoints(maxLevel, hintStage)
   const sharePool = { pkg: activePackage, ...filters }
   // Suggestions for the list editor (excludes games already on the list).
   const addSuggestions = useMemo(() => {
-    const q = normalize(addQuery.trim())
-    if (q.length < 2 || editingList === null) return [] as GameEntry[]
+    if (editingList === null) return [] as GameEntry[]
     const onList = new Set(lists.find((l) => l.name === editingList)?.ids ?? [])
-    return GAMES.filter(
-      (x) =>
-        !onList.has(x.id) &&
-        (normalize(x.title).includes(q) || x.aliases.some((a) => normalize(a).includes(q))),
-    ).slice(0, 8)
+    return suggestMatches(GAMES, addQuery, onList)
   }, [addQuery, editingList, lists])
   // Guess input lives in GuessForm (own keystroke state); submit arrives
   // as a value so typing never re-renders the whole App.
@@ -361,6 +462,7 @@ export default function App() {
       setWrongs(0)
       setHintStage(0)
       setSolved(false)
+      setSolvedRepeat(false)
       setGaveUp(false)
       setMessage(null)
       setShotAspect(null)
@@ -384,7 +486,11 @@ export default function App() {
   }, [total, solvedCount])
 
   const updateFilters = useCallback((patch: Partial<Filters>) => {
-    setFilters((f) => ({ ...f, ...patch }))
+    setFilters((f) => {
+      const next = { ...f, ...patch }
+      const [ymin, ymax] = clampYears(next.ymin, next.ymax)
+      return { ...next, ymin, ymax }
+    })
     setActivePackage(null)
   }, [])
 
@@ -398,6 +504,7 @@ export default function App() {
   }, [])
 
   const pickPackage = useCallback((label: string) => {
+    if (roundQueue !== null) return
     if (label === activePackage) {
       setActivePackage(null)
       return
@@ -406,7 +513,7 @@ export default function App() {
     if (!pkg) return
     setFilters({ ...DEFAULT_FILTERS, ...pkg.patch })
     setActivePackage(label)
-  }, [activePackage])
+  }, [activePackage, roundQueue])
 
   useEffect(() => {
     try {
@@ -416,12 +523,49 @@ export default function App() {
     }
   }, [lists])
 
+  // unique id per round instance (history dedupe + parked-round identity)
+  const roundUid = useRef(initialStored?.uid ?? 0)
+  const recordedRef = useRef<Set<number>>(
+    new Set(
+      initialStored !== null && initialStored.queue.every((id) => initialStored.results[id])
+        ? [initialStored.uid]
+        : [],
+    ),
+  )
+  const [history, setHistory] = useState<RoundRecord[]>(loadHistory)
+  const best = history.reduce<RoundRecord | null>((b, r) => (!b || r.points > b.points ? r : b), null)
+
+  // Record finished rounds once (history + personal best, localStorage).
+  useEffect(() => {
+    if (!showSummary || roundQueue === null) return
+    if (recordedRef.current.has(roundUid.current)) return
+    recordedRef.current.add(roundUid.current)
+    const rec: RoundRecord = {
+      date: new Date().toISOString(),
+      label: roundListName ?? activePackage ?? 'Mixed pool',
+      games: roundQueue.length,
+      solved: roundSolved,
+      points: roundPoints,
+    }
+    setHistory((h) => {
+      const next = [rec, ...h].slice(0, HISTORY_MAX)
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(next))
+      } catch {
+        // ignore
+      }
+      return next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSummary, roundQueue])
+
   const startRound = useCallback(() => {
     const n = Math.min(ROUND_SIZE, pool.length)
     if (n === 0) return
     const ids = preferFresh(pool, seenRef.current, seenBeforeRef.current ?? new Set())
       .slice(0, n)
       .map((g) => g.id)
+    roundUid.current += 1
     setRoundQueue(ids)
     setRoundResults({})
     setShowSummary(false)
@@ -432,6 +576,7 @@ export default function App() {
 
   const playList = useCallback((list: CustomList) => {
     if (list.ids.length === 0) return
+    roundUid.current += 1
     setRoundQueue([...list.ids])
     setRoundResults({})
     setShowSummary(false)
@@ -442,6 +587,7 @@ export default function App() {
 
   const replayList = useCallback(() => {
     if (roundQueue === null) return
+    roundUid.current += 1
     setRoundResults({})
     setShowSummary(false)
     pickGame(roundQueue[0])
@@ -485,17 +631,21 @@ export default function App() {
     [],
   )
 
-  // free play: prefer games not yet seen (this session, then past ones)
-  const nextFreePick = useCallback((excludeId?: string) => {
+  // free play: prefer games not yet seen (this session, then past ones).
+  // null when the pool is empty — callers must not start a 0-game play.
+  const nextFreePick = useCallback((excludeId?: string): string | null => {
+    if (pool.length === 0) return null
     const persisted = seenBeforeRef.current ?? new Set<string>()
     const fresh = pool.filter(
       (g) => g.id !== excludeId && !seenRef.current.has(g.id) && !persisted.has(g.id),
     )
-    if (fresh.length) return randomFrom(fresh).id
+    if (fresh.length) return randomFrom(fresh)!.id
     const unsess = pool.filter((g) => g.id !== excludeId && !seenRef.current.has(g.id))
-    if (unsess.length) return randomFrom(unsess).id
+    if (unsess.length) return randomFrom(unsess)!.id
     seenRef.current.clear()
-    return randomFrom(pool, excludeId).id
+    const rest = excludeId ? pool.filter((g) => g.id !== excludeId) : pool
+    if (rest.length === 0) return null
+    return randomFrom(rest)!.id
   }, [pool])
 
   const exitRound = useCallback(() => {
@@ -503,6 +653,7 @@ export default function App() {
     setRoundResults({})
     setShowSummary(false)
     setRoundListName(null)
+    // explicit abandon: the save effect below drops the parked round too
   }, [])
 
   const giveUp = useCallback(() => {
@@ -524,12 +675,35 @@ export default function App() {
     }
   }, [filters])
 
+  // Mirror the live round into sessionStorage: a refresh silently resumes
+  // with results and position intact instead of abandoning the round.
+  useEffect(() => {
+    try {
+      if (roundQueue === null) {
+        sessionStorage.removeItem(ROUND_KEY)
+      } else {
+        const parked: StoredRound = {
+          v: 1,
+          uid: roundUid.current,
+          queue: roundQueue,
+          results: roundResults,
+          gameId,
+          listName: roundListName,
+        }
+        sessionStorage.setItem(ROUND_KEY, JSON.stringify(parked))
+      }
+    } catch {
+      // ignore
+    }
+  }, [roundQueue, roundResults, gameId, roundListName])
+
   // If the filters exclude the current game, jump to one that matches —
   // unless the current game is a shared challenge link, or a round is running.
   useEffect(() => {
-    if (gameId === initialSharedId || roundQueue !== null) return
+    if (gameId === initialSharedId || roundQueue !== null || pool.length === 0) return
     if (!pool.some((g) => g.id === gameId)) {
-      pickGame(randomFrom(pool).id)
+      const id = nextFreePick()
+      if (id) pickGame(id)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pool, roundQueue])
@@ -572,6 +746,7 @@ export default function App() {
       const earned = earnedPoints(maxLevel, hintStage)
       const repeat = seenBeforeRef.current?.has(game.id) ?? false
       const pts = repeat ? Math.min(earned, 10) : earned
+      setSolvedRepeat(repeat)
       const lvl = levelLabel(LEVELS[maxLevel])
       setScore((s) => ({ total: s.total + pts, solved: s.solved + 1 }))
       if (roundQueue !== null) {
@@ -681,6 +856,14 @@ export default function App() {
     window.setTimeout(() => setToast(null), 2200)
   }
 
+  // Confirm silent round restores so the continued game doesn't confuse.
+  useEffect(() => {
+    if (initialStored !== null && initialSharedRound === null) {
+      flash('Round restored — welcome back!')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <div className="page">
       <header className="topbar">
@@ -700,6 +883,11 @@ export default function App() {
           🔗 Shared challenge — no spoilers, guess first, then forward it!
         </div>
       )}
+      {unknownShared && (
+        <div className="banner">
+          🔗 That shared level isn't in the pool (removed game or mistyped link) — playing a random level instead.
+        </div>
+      )}
       {sharedPoolLabel !== null && (
         <div className="banner">
           🎲 Shared pool: <strong>{sharedPoolLabel}</strong> — your filters were switched to match.{' '}
@@ -712,6 +900,9 @@ export default function App() {
       {roundQueue !== null && !showSummary && (
         <div className="banner">
           🏁 {isSharedRound ? 'Shared round' : 'Round'} game {roundQueue.indexOf(gameId) + 1} of {roundQueue.length} · {roundPoints} pts so far{' '}
+          {sharedDropped > 0 && (
+            <>· {sharedDropped} game{sharedDropped > 1 ? 's' : ''} no longer in the pool{' '}</>
+          )}
           <button onClick={exitRound}>Exit round</button>{' '}
           <button
             onClick={async () => {
@@ -763,7 +954,7 @@ export default function App() {
                 Copy round result as text
               </button>
               <button onClick={roundListName ? replayList : startRound}>{roundListName ? `Replay ${roundListName}` : 'New round'}</button>
-              <button onClick={() => { exitRound(); pickGame(nextFreePick()) }}>Free play</button>
+              <button onClick={() => { const id = nextFreePick(); if (id) { exitRound(); pickGame(id) } }} disabled={pool.length === 0}>Free play</button>
               <button
                 onClick={async () => {
                   const ok = await copyText(roundLink(roundQueue, Math.max(0, roundQueue.indexOf(gameId)), roundQueue.map(viewedShot)))
@@ -774,6 +965,22 @@ export default function App() {
               </button>
             </div>
             <p className="muted">Send friends the round link — they play the same levels in order, then start their own round from the summary.</p>
+            {history.length > 0 && (
+              <div className="history">
+                <h3>🏆 Best & past rounds</h3>
+                {best !== null && (
+                  <p>Best: <strong>{best.points} pts</strong> ({best.solved}/{best.games} solved{best.label !== 'Mixed pool' ? ` · ${best.label}` : ''})</p>
+                )}
+                <div className="roundlist">
+                  {history.slice(0, 10).map((h, i) => (
+                    <div key={`${h.date}-${i}`} className="roundrow">
+                      <span>{h.solved}/{h.games} solved · <strong>{h.points} pts</strong></span>
+                      <span className="muted">{h.date.slice(0, 10)} · {h.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : screen === 'setup' ? (
           <>
@@ -794,6 +1001,7 @@ export default function App() {
               key={p.label}
               className={`chip ${activePackage === p.label ? 'active' : ''}`}
               onClick={() => pickPackage(p.label)}
+              disabled={roundQueue !== null}
             >
               📦 {p.label}
             </button>
@@ -932,10 +1140,13 @@ export default function App() {
               <button className="primary" onClick={startRound} disabled={pool.length === 0}>
                 Start round ({Math.min(ROUND_SIZE, pool.length)})
               </button>
-              <button onClick={() => { exitRound(); pickGame(nextFreePick()); setScreen('play') }}>
+              <button onClick={() => { const id = nextFreePick(); if (id) { exitRound(); pickGame(id); setScreen('play') } }} disabled={pool.length === 0}>
                 Start free play
               </button>
             </div>
+            {best !== null && (
+              <p className="muted">🏆 Best round: <strong>{best.points} pts</strong> ({best.solved}/{best.games} solved)</p>
+            )}
           </>
         ) : (
           <>
@@ -993,6 +1204,9 @@ export default function App() {
               {game.metacritic !== undefined && (
                 <div><span className="muted">Metacritic</span> <strong>{game.metacritic}</strong>/100</div>
               )}
+              {sales !== null && (
+                <div><span className="muted">Sales</span> <strong title={`Reported figure, source: ${sales.source}`}>{formatSales(sales.units)}</strong></div>
+              )}
               <div className="links">
                 {buyLinks(game).map((l) => (
                   <a key={l.label} href={l.url} target="_blank" rel="noopener noreferrer nofollow">
@@ -1015,7 +1229,8 @@ export default function App() {
                 <button
                   onClick={async () => {
                     const earned = earnedPoints(maxLevel, hintStage)
-                    const ok = await copyText(discordResultText(game, maxLevel, earned, sharePool, viewedShot(game.id)))
+                    const pts = solvedRepeat ? Math.min(earned, 10) : earned
+                    const ok = await copyText(discordResultText(game, maxLevel, pts, sharePool, viewedShot(game.id)))
                     flash(ok ? 'Result copied — paste it anywhere!' : 'Copy failed')
                   }}
                 >
@@ -1040,7 +1255,7 @@ export default function App() {
                   <button className="primary" onClick={() => setShowSummary(true)}>Round results →</button>
                 )
               ) : (
-                <button onClick={() => pickGame(nextFreePick(game.id))} disabled={pool.length < 2}>Next random</button>
+                <button onClick={() => { const id = nextFreePick(game.id); if (id) pickGame(id) }} disabled={pool.length < 2}>Next random</button>
               )}
             </div>
           </div>
@@ -1050,7 +1265,7 @@ export default function App() {
           <p className="message">📅 Release year: <strong>{game.year}</strong>{hintStage >= 2 && (<> · 🔤 Title shape: <code>{titleMask(game.title)}</code></>)}</p>
         )}
 
-        {message && <p className="message">{message}</p>}
+        {message && <p className="message" aria-live="polite">{message}</p>}
 
         {!finished && (
           <div className="btnrow">
@@ -1066,7 +1281,7 @@ export default function App() {
               Give up & reveal
             </button>
             {roundQueue === null && (
-              <button onClick={() => pickGame(nextFreePick(game.id))} disabled={pool.length < 2}>Skip</button>
+              <button onClick={() => { const id = nextFreePick(game.id); if (id) pickGame(id) }} disabled={pool.length < 2}>Skip</button>
             )}
           </div>
         )}
@@ -1074,7 +1289,7 @@ export default function App() {
         <details className="how">
           <summary>How scoring & sharing works</summary>
           <ul>
-            <li>Each level is one game. You start at <strong>4×4</strong> ({LEVELS[0].points} pts). Every reveal halves the points down to full image.</li>
+            <li>Each level is one game. You start at <strong>16 wide</strong> ({LEVELS[0].points} pts). Every reveal halves the points down to full image.</li>
             <li>Near answers count: <em>“gta 5”</em> solves Grand Theft Auto V, <em>“botw”</em> solves Breath of the Wild, typos included. Vague names fit several games — then you get asked which one exactly.</li>
             <li><strong>Hints:</strong> first hint reveals the release year, second the title shape. Each halves your points (min 10).</li>
             <li><strong>Rounds:</strong> set genre / publisher / platform / year filters, then “Start round” plays 10 random levels from that pool. The summary lets you share any single game and copy the round result as text.</li>
@@ -1101,7 +1316,7 @@ export default function App() {
           </ul>
         </details>
       </footer>
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   )
 }

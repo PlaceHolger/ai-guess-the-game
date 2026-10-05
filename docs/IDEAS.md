@@ -11,7 +11,7 @@
   YouTube links per level are the free path.
 - **Audio rounds**: guess from music/SFX (same manual-curation pattern).
 - **Daily challenge**: one shared level per day (seed by date), streaks.
-- **Difficulty tiers**: 4×4 start for all vs. higher-start "easy mode".
+- **Difficulty tiers**: 16-wide start for all vs. higher-start "easy mode".
 - **Timed rounds**: countdown per guess, bonus for speed.
 
 ## Data & sources
@@ -44,6 +44,6 @@
 - Init a git repo (data safety — currently none).
 - Chunk `games.hand.ts` too if the hand list ever grows past ~300 rows
   (same TS2590 limit that forced `games.auto.ts` chunking).
-- `tsv-from-ts.mjs` is one-way; hand edits now flow TSV → TS only.
+- Hand edits flow TSV → TS only (`build-data.mjs`; the reverse converter was deleted).
 - Prune `scripts/` temp-file discipline: all project scripts `--check` clean;
   keep it that way (a German-batch outage came from an untested edit).
