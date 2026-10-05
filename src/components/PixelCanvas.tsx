@@ -62,21 +62,26 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, seed: string) {
  * Loading strategy: one shared in-memory image per URL (no re-download
  * across resolutions — always the full variant, since IGDB's smaller
  * sizes are center-cropped and would show different content), and LOADING
- * variant instead of full 1080p, and LOADING only paints after 250ms so
- * cached draws never flash.
+ * only paints after 250ms so cached draws never flash. Listeners are added
+ * (never assigned) so concurrent runs can't clobber each other, and a
+ * cached entry that finished without pixels (a failed load never re-fires
+ * events) is swapped for a fresh load instead of hanging on LOADING.
  */
 const imgCache = new Map<string, HTMLImageElement>()
 
-function cachedImage(src: string): HTMLImageElement {
-  let img = imgCache.get(src)
-  if (!img) {
-    img = new Image()
-    img.src = src
-    imgCache.set(src, img)
-    if (imgCache.size > 12) {
-      const oldest = imgCache.keys().next()
-      if (!oldest.done && oldest.value !== src) imgCache.delete(oldest.value)
-    }
+function loadableImage(src: string): HTMLImageElement {
+  const cached = imgCache.get(src)
+  if (cached && !(cached.complete && cached.naturalWidth === 0)) return cached
+  // Missing, still loading, decoded — or dead (finished without pixels).
+  // A dead entry never re-fires load/error, so waiting on it would hang on
+  // LOADING forever: drop it and start a fresh load instead.
+  if (cached) imgCache.delete(src)
+  const img = new Image()
+  img.src = src
+  imgCache.set(src, img)
+  if (imgCache.size > 12) {
+    const oldest = imgCache.keys().next()
+    if (!oldest.done && oldest.value !== src) imgCache.delete(oldest.value)
   }
   return img
 }
@@ -85,12 +90,16 @@ export default function PixelCanvas({ srcs, startAt, resolution, seed, onShow, o
   const [skip, setSkip] = useState(0)
   const [retryTick, setRetryTick] = useState(0)
   const retried = useRef(new Set<number>())
-  const key = `${srcs.join('|')}@${startAt}@${resolution}`
+  const srcKey = srcs.join('|')
+  // Fallthrough progress (skip/retries) belongs to the screenshot list, not
+  // the resolution: switching levels must keep the same candidate instead
+  // of restarting on a broken first URL (which hung on LOADING forever).
+  const listKey = `${srcKey}@${startAt}`
   useEffect(() => {
     setSkip(0)
     setRetryTick(0)
     retried.current = new Set()
-  }, [key, startAt])
+  }, [listKey])
 
   useEffect(() => {
     const canvas = ref.current
@@ -106,17 +115,24 @@ export default function PixelCanvas({ srcs, startAt, resolution, seed, onShow, o
     }
     const idx = (startAt + skip) % srcs.length
     const src = srcs[idx]
-    if (onShow) onShow(idx)
-    // Retries bypass the cache so a failed load really hits the network again.
-    if (retryTick > 0) imgCache.delete(src)
-    const img = cachedImage(src)
+    // loadableImage already swaps dead entries for a fresh load; the retry
+    // run below just needs a new element, it must not evict healthy decoded
+    // images on every later render (that forced a re-download per level).
+    const img = loadableImage(src)
 
     let timer: ReturnType<typeof setTimeout> | undefined
     let settled = false
+    const detach = () => {
+      img.removeEventListener('load', onLoad)
+      img.removeEventListener('error', onError)
+    }
     const onError = () => {
       if (settled) return
       settled = true
       if (timer) clearTimeout(timer)
+      detach()
+      // Drop the failed element so the retry really hits the network.
+      imgCache.delete(src)
       if (!retried.current.has(idx)) {
         retried.current.add(idx)
         timer = setTimeout(() => setRetryTick((t) => t + 1), 1200)
@@ -165,27 +181,30 @@ export default function PixelCanvas({ srcs, startAt, resolution, seed, onShow, o
     if (img.complete && img.naturalWidth > 0) {
       if (onAspect) onAspect(img.naturalWidth / img.naturalHeight)
       draw()
+      if (onShow) onShow(idx)
       return
     }
     // Otherwise show LOADING only if it actually takes a moment.
     timer = setTimeout(() => {
       if (!settled) drawLoading(ctx)
     }, 250)
-    img.onload = () => {
+    const onLoad = () => {
       if (settled) return
       settled = true
       if (timer) clearTimeout(timer)
+      detach()
       if (onAspect) onAspect(img.naturalWidth / img.naturalHeight)
       draw()
+      if (onShow) onShow(idx)
     }
-    img.onerror = onError
+    img.addEventListener('load', onLoad)
+    img.addEventListener('error', onError)
     return () => {
       settled = true
       if (timer) clearTimeout(timer)
-      img.onload = null
-      img.onerror = null
+      detach()
     }
-  }, [srcs, skip, startAt, resolution, seed, retryTick])
+  }, [srcKey, skip, startAt, resolution, seed, retryTick])
 
   return (
     <canvas

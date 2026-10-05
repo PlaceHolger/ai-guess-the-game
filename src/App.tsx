@@ -292,6 +292,10 @@ export default function App() {
   }
 
   const game = useMemo(() => getGame(gameId) ?? GAMES[0], [gameId])
+  // Stable screenshot list per game: shotsFor builds a new array every
+  // call, and a fresh identity re-ran the canvas load effect on each
+  // keystroke (shared image handlers + reset loading timer each time).
+  const shots = useMemo(() => shotsFor(game), [game])
   const filtered = useMemo(
     () =>
       GAMES.filter(
@@ -934,7 +938,7 @@ export default function App() {
           ))}
         </div>
 
-        <PixelCanvas key={game.id} srcs={shotsFor(game)} startAt={shotPos} resolution={LEVELS[levelIdx].size} seed={game.id} onShow={(idx) => shotHistRef.current.set(gameId, idx)} onAspect={setShotAspect} />
+        <PixelCanvas key={game.id} srcs={shots} startAt={shotPos} resolution={LEVELS[levelIdx].size} seed={game.id} onShow={(idx) => shotHistRef.current.set(gameId, idx)} onAspect={setShotAspect} />
         <div className="meta">
           <span>Level: <strong>{gridLabel(LEVELS[levelIdx].size, shotAspect)}</strong></span>
           <span>Worth: <strong>{points} pts</strong></span>
