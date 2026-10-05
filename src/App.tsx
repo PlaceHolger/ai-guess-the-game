@@ -602,13 +602,23 @@ export default function App() {
                 ? ` — also ${game.publisher}`
                 : ''
         setAttempts((a) => a + 1)
-        setMessage(`🎯 "${value.trim()}" is ${other.title} (${other.year})${note} — but that's not this level!`)
+        // Always lead with the guess ("your guess … is not …"), then name
+        // the game it actually is — never parrot an exact pick twice.
+        const echo = value.trim()
+        const namesIt =
+          normalize(echo) === normalize(other.title) ||
+          normalize(echo) === normalize(`${other.title} (${other.year})`)
+        setMessage(
+          namesIt
+            ? `🎯 Your guess "${echo}" is not the correct answer for this level${note}!`
+            : `🎯 Your guess "${echo}" is ${other.title} (${other.year})${note} — not the correct answer for this level!`,
+        )
         return
       }
       if (others.length > 1) {
         const names = others.slice(0, 4).map((x) => x.title).join(' · ')
         setAttempts((a) => a + 1)
-        setMessage(`❌ Nope — "${value.trim()}" could mean several games (${names}), but this level is none of them!`)
+        setMessage(`❌ Nope — "${value.trim()}" could mean several games (${names}), but none of them is the correct answer for this level!`)
         return
       }
       // Naming the credits ("daedalic" for a Daedalic game): confirm the
@@ -769,6 +779,9 @@ export default function App() {
           <>
             <h2>⚙ New game</h2>
             <p className="muted">Packages and filters define the pool ({pool.length} / {GAMES.length} levels). Starting something new abandons a running round.</p>
+            {roundQueue !== null && (
+              <p className="message locknote">🔒 <strong>Locked:</strong> a round is running — packages, filters and lists stay as they are until it ends. Exit the round to change the pool.</p>
+            )}
             <div className="btnrow">
               <button onClick={() => setScreen('play')}>← Back to game</button>
               {roundQueue !== null && (

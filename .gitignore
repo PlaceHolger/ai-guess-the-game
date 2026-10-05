@@ -8,3 +8,4 @@ public/screenshots/*.png
 public/screenshots/*/*.png
 public/screenshots/*.webp
 public/screenshots/*/*.webp
+tsconfig.tsbuildinfo

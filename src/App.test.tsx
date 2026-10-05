@@ -50,6 +50,24 @@ describe('App', () => {
     expect(container.querySelector('.shotwrap.solved')).not.toBeNull()
   })
 
+  it('explains locked filters when a round is running', () => {
+    render(<App />)
+    fireEvent.click(screen.getByText('⚙ New game'))
+    fireEvent.click(screen.getByText(/Start round \(10\)/))
+    expect(screen.getByText(/Round game 1 of 10/)).toBeTruthy()
+    fireEvent.click(screen.getByText('⚙ New game'))
+    expect(screen.getByText(/a round is running/i)).toBeTruthy()
+  })
+
+  it('redirects an exact other-game pick without parroting it', () => {
+    render(<App />)
+    fireEvent.change(screen.getByPlaceholderText('Which game is this?'), { target: { value: 'Pac-Man (1980)' } })
+    fireEvent.click(screen.getByText('Guess'))
+    const msg = screen.getByText(/not the correct answer for this level!/).textContent ?? ''
+    expect(msg).toMatch(/Your guess "Pac-Man \(1980\)" is not/)
+    expect(msg).not.toMatch(/is Pac-Man/)
+  })
+
   it('uses unique keys for siblings (same key duplicates/omits DOM nodes)', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
