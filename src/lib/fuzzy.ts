@@ -143,7 +143,8 @@ export function normalizedEntries(games: GameEntry[]): NormEntry[] {
 /** Suggestion matches for a free-text query: title or alias contains it.
  *  The label shows what the player recognizes — the matched alias when the
  *  hit came through one ("Anno 1404 → Dawn of Discovery (2009)"), otherwise
- *  the plain "Title (year)". Picking always submits the canonical title. */
+ *  the plain "Title (year)". Picking fills the canonical title, so the next
+ *  submit always matches exactly. */
 export interface Suggestion {
   game: GameEntry
   label: string

@@ -95,7 +95,7 @@ filters, rounds, guessing and sharing pick it up automatically.
 
 ## 3b. Editing the hand list (games.tsv)
 
-The 201 curated entries live in `src/data/games.tsv` (UTF-8, tab-separated —
+The 202 curated entries live in `src/data/games.tsv` (UTF-8, tab-separated —
 opens in Excel/LibreOffice; keep the year column as text and save back as
 UTF-8 TSV). Columns:
 
@@ -154,6 +154,37 @@ a figure exists — approximate by design (lower bounds, no as-of date).
 - `node scripts/prune-aliases.mjs --apply` — drops stub acronym aliases (<3 chars).
 - `node scripts/fix-data.mjs --apply` — drops self-title aliases, dedupes platforms.
 - Both default to dry-run report mode; `games.hand.ts` regenerates via data:build.
+
+### 3f. Adding new releases (manual routine)
+
+The pool is refreshed by hand; nothing is scheduled. When a batch of new
+releases with screenshots is worth adding, widen the newest years:
+
+```sh
+npm run import -- --year 2025 --top 40 --dry   # preview only
+npm run import -- --year 2026 --top 40 --dry
+# vet the printed list against docs/GAME-LIST.md, then apply:
+npm run import -- --year 2026 --top 40
+npm run import -- --year 2025 --top 40
+npm run backfill-remote     # import adds local shots only, no CDN remotes
+npm run data:build
+npm run list
+npm run audit
+npm run test
+```
+
+Vetting and traps:
+
+- Dedup uses the IGDB slug and `title|year`; a different slug for a game
+  already in the pool slips through (`baldurs-gate-iii` next to
+  `baldurs-gate-3`). Scan the dry-run list for numbered/Roman-numeral titles.
+- Entries without an IGDB screenshot are skipped; ones below the 25-vote
+  mainstream floor are imported but hidden unless *fan picks* is on.
+- IGDB's `first_release_date` can point at a later port/1.0 release
+  (Valheim reported 2026). Store the original year per §3c.
+- `backfill-remote` is required after import: it fills `remote`/`remoteAlts`,
+  which is what the app hotlinks; otherwise the level depends on local files.
+- Review the new shots like any fetch (§4 "Review duty"), then `sync-shots`.
 
 ## 4. Screenshots: sources and fetchers
 
@@ -275,6 +306,26 @@ No server component, no env vars, no database. Share links are plain URLs.
 `dist/` holds only the app (~1.1 MB JS + index.html): `public/screenshots/`
 is dev-only fallback and is NOT copied on build (the game runs off IGDB CDN
 remotes — see `npm run audit:remotes`), so deploys stay small.
+
+### 6a. GitHub Pages: live + preview
+
+Two workflows publish to the one Pages site (one site per repo is a GitHub
+limit):
+
+| Workflow | Trigger | Publishes to | Cleanup |
+|---|---|---|---|
+| `deploy.yml` | push to `main` (tests + audit + build) | root `/` | whole branch — **deletes `preview/`** |
+| `preview.yml` | push to **any other branch** (build only) | `/preview/` | `preview/` only, root untouched |
+
+The preview action sets `destination_dir: preview`, so its cleanup can only
+reach inside that folder. The main deploy has no `destination_dir`, so it
+rebuilds the branch root from scratch — that is deliberate: a release retires
+the old preview. `gh-pages` is generated: never merge into it or edit it.
+
+- Test a feature at `https://<user>.github.io/<repo>/preview/` before merging.
+- There is **one preview slot**: pushing branch B replaces the preview of
+  branch A. Merge order is main-only, so nothing here affects production.
+- After a release `/preview/` is gone (404) until the next branch push.
 
 ## 6b. When a script went wrong
 

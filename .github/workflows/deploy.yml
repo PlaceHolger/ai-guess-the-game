@@ -6,6 +6,8 @@ on:
     branches: [main]
 permissions:
   contents: write
+# Same group as preview.yml: both push to gh-pages, so they must queue.
+concurrency: gh-pages
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -23,3 +25,4 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
+          # no keep_files: a main deploy wipes the whole branch, incl. preview/

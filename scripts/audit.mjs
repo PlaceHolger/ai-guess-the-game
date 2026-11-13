@@ -280,7 +280,7 @@ async function main() {
       const pm = b.match(/"?platforms"?\s*:\s*\[([^\]]*)\]/)
       const plats = pm ? [...pm[1].matchAll(/['"]([^'"]+)['"]/g)].map((x) => x[1]) : []
       const pub = b.match(/publisher:\s*'([^']+)'/)?.[1] ?? b.match(/"publisher"\s*:\s*"([^"]+)"/)?.[1] ?? ''
-      if (year > 2025) exotic.push(`${id}: dated ${year} (future?)`)
+      if (year > new Date().getFullYear()) exotic.push(`${id}: dated ${year} (future?)`)
       if (/^unknown$/i.test(pub)) exotic.push(`${id}: publisher Unknown`)
       const ends = plats.map((pl) => ERA_END[pl]).filter((e) => e !== undefined)
       if (plats.length && ends.length === plats.length && year > Math.max(...ends) + 5) {

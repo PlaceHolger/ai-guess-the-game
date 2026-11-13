@@ -1,0 +1,28 @@
+# Builds any non-main branch to https://<user>.github.io/<repo>/preview/
+# without touching the main site at the domain root.
+# Same gh-pages branch, different folder; base './' makes relative assets work.
+# Last branch pushed wins — there is one preview slot, not one per branch.
+name: Preview branch
+on:
+  push:
+    branches-ignore: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: gh-pages   # shared with deploy.yml; never push gh-pages twice at once
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          destination_dir: preview   # cleanup is scoped to preview/, so root survives

@@ -1,13 +1,14 @@
-# Guess the Game — Current State (as of 2026-10-06)
+# Guess the Game — Current State (as of 2026-11-13)
 
 ## Can I test it right now?
 
-Yes. Dev servers run on **http://localhost:5173/** and **http://localhost:5174/**
-(both watch the same files — if behavior looks stale, hard-refresh with
-Ctrl+F5). Play: guess → reveal → hint → round → summary → share links.
-`npm run test` (80+ vitest cases) and `npm run build` pass;
-`node scripts/audit.mjs` is the data health check (green: no missing, orphans,
-dupes or shared shots).
+Yes. `npm run dev` serves **http://localhost:5173/**; `npm run test` (88 vitest
+cases, 7 files), `npm run build`, `npx tsc --noEmit` and `node scripts/audit.mjs`
+are green (0 missing shots, 0 orphans, 0 dupes, 0 shared remotes).
+
+Branch state: work lives on **`feature/persistence`**, 2 commits ahead of
+`main` (`43b72d4`). GitHub Pages deploys on push to `main`, so the two newest
+commits (round persistence, autocomplete) are **not live yet**.
 
 ## What works
 
@@ -16,53 +17,75 @@ dupes or shared shots).
   feedback, wrong-game redirects ("That is Risen - same developer!"),
   developer/publisher nudges, two-step hints (year, then title shape,
   each halving points), auto-reveal every 2nd wrong guess, full-res on
-  solve/give-up, no-repeat sessions. Setup screen holds packages+filters;
-  play shows only the game. Full searchable game list as spelling aid.
+  solve/give-up, no-repeat sessions.
+- **Autocomplete**: ranked suggestions from the whole pool (starts-with
+  hits first, alphabetical), alias rows ("Anno 1404 → Dawn of Discovery
+  (2009)") with the typed part underlined; picking fills the canonical
+  "Title (year)", submit stays free-text (typos/regional names included).
 - **Rounds**: 10 games from the filtered pool, summary with per-game scores,
   single-game share links, copyable round result.
-- **Sharing**: level links (`?game=` short hash, no title spoiler),
-  paste-ready result/round messages as text, mid-game challenge text
-  (level + worth, never the title), spoiler-free shared-challenge banner,
-  OG tags for unfurls (needs public https host — see OPERATIONS §6).
-- **Filters**: multi-select facets (genre incl. RPG/Shooter groups, publisher,
-  developer, platform, franchise), years + decades, mainstream-only default
-  with *fan picks* toggle, 17 package presets (Star Wars, N64, Sierra,
-  Made in Germany, engines…).
+- **Resume**: a running round and its per-level state (level, attempts,
+  wrong guesses, hints, solved, shot) survive a reload via sessionStorage,
+  with resume/discard on return; `?game=`/`?round=` links win over stored
+  state. React error boundary catches crashes with a reload path.
+- **History**: last 30 finished rounds + personal best in localStorage,
+  shown on setup and summary.
+- **Sharing**: level links (`?game=` short hash, no title spoiler), round
+  links, paste-ready result/round/challenge text, spoiler-free shared
+  banner, OG tags for unfurls (needs the public Pages URL).
+- **Filters**: multi-select facets (genre incl. RPG/Shooter groups,
+  publisher, developer, platform, franchise), years + decades,
+  mainstream-only default with *fan picks* toggle, 17 package presets.
+  Shared-link facets/years are validated (unknown values stripped, years
+  clamped).
 - **Result card**: genre/publisher/developer/platforms, Metacritic (where
-  known, ~600 scores via RAWG), Amazon + MobyGames links (affiliate-ready,
-  tag empty), footer Sources & credits (IGDB, libretro; RAWG row still open).
-- **Pool**: ~1,560 levels (202 hand-curated TSV + ~1,355 bulk + custom),
-  1976–2026, 80+ platforms. Every entry hotlinks IGDB CDN shots
-  (100% remote coverage, hand remotes live in the TSV); local files are
-  fallback-only, paths are deploy-base-relative. Health:
-  0 orphans, 0 byte-dupes, 0 shared shots, ~600 Metacritic scores, regional aliases, 83 tests.
+  known, ~600 scores via RAWG), sales (`≈15M copies`, 143 published
+  figures from Wikidata/Wikipedia) with source tooltip, Amazon + MobyGames
+  links (affiliate-ready, tag empty), footer Sources & credits.
+- **Pool**: 1,616 levels (202 hand-curated TSV + 1,414 bulk + custom),
+  1976–2026, 80+ platforms. Entries hotlink IGDB CDN shots (`remote`/
+  `remoteAlts`); local files are fallback-only and gitignored. Health:
+  0 orphans, 0 byte-dupes, 0 shared shots, regional aliases, 88 tests.
+  Latest refresh: 58 entries for 2024–2026 (Nov 2026).
 - **Tooling**: IGDB fetch (year-aware matcher), bulk import (year/company/
-  platform/franchise/engine/enrich), Libretro retro fallback, add-custom,
-  audit (missing/orphans/dupes/exotics), remove (single + bulk), backfills
-  (popular/franchise/engine, metacritic, aliases), TSV build with validation.
+  platform/franchise/engine/title/enrich), Libretro retro fallback,
+  add-custom, audit (exit codes + `--strict`/`--shared-remote`/`--dupes`),
+  remove (single + bulk, hardened with `--yes`), backfills (popular/
+  franchise/engine, metacritic, aliases, remotes), sales fetch, fix-data/
+  prune-aliases, TSV build (validates rows, compiles `sales.ts`), game
+  list. CI runs test + audit + build and deploys `dist/` to Pages on main.
 
 ## What's NOT done / known gaps
 
-- **Screenshot content review**: ~1,300 images unreviewed by a human (covers,
-  wrong games, DLC shots). Fixed this round: Duke3D Game.com photos, Doom
-  1993 showing 2016 shots, Doom II listed twice. Minecraft entry is
-  2016-dated, Arkham Knight skin matched once — review via `audit --year XXXX`.
-  (Fallout now shows FO1 CDN shots; Larry/AC1/Journey play via CDN remotes.)
-- **Deck13/Crytek batches added**: Ankh 1, Jack Keane 2, Blood Knights,
-  Black Sails: The Ghost Ship, Haunted, Moorhuhn: Tiger and Chicken,
-  Crysis 1-3, Ryse, KCD 1, Robinson, Hunt: Showdown, The Climb,
-  Sniper: Ghost Warrior 2 (all default-visible). "Tiger & Chicken" turned
-  out to be Moorhuhn: Tiger and Chicken (IGDB, Deck13 co-dev).
-- **Crysis 1** missing (no clean Crytek Frankfurt entity in IGDB).
-- **~20 unreleased-2026 placeholders** kept deliberately — verify on release.
-- **RAWG credits row** in footer not yet added (do with any RAWG display change).
+- **Branch not merged/deployed**: `feature/persistence` is 2 commits ahead
+  of `main`; Pages still serves `43b72d4`. Merge to ship.
+- **Screenshot content review**: ~1,300 images still unreviewed by a human
+  (covers, wrong games, DLC shots). `npm run audit` currently flags 27
+  entries with the generic `Action` genre; review via `audit --year XXXX`,
+  then `sync-shots` / `remove`.
+- **2026 titles imported pre-release**: 20 entries dated 2026 were bulk
+  imports of then-upcoming games. Verify each now that it is (or is not)
+  out; `valheim` was corrected to its original 2021 release (IGDB's
+  `first_release_date` had drifted to a later version).
+- **Data refresh is manual**: no scheduled job; run the new-release
+  routine in OPERATIONS §3f when a batch of releases is worth adding.
 - **No leaderboards**: score is per-browser + shared via text paste only.
-- **No deploy yet**: `dist/` builds, but nothing is hosted publicly.
+- **Ideas only** (docs/IDEAS.md): daily challenge, full keyboard play,
+  DE/EN localization, wide desktop/fullscreen layout, replay earlier
+  round levels.
+- **Bundle**: single ~1.13 MB JS chunk; splitting is gated on the frozen
+  `shotsFor()` order (share links index into it positionally).
 
 ## Data safety notes
 
-- Local repo initialized (2 commits, no remote yet). A backup of `games.auto.ts` lives in the
-  temp folder from the exotic cleanup; screenshots are gitignored local-only
-  (fallback — the game runs fully off CDN remotes without them).
-- Bulk scripts are idempotent (skip existing, dedup) except `remove`, which
-  permanently deletes entries + files.
+- Remote exists (`github.com/PlaceHolger/ai-guess-the-game`). Branch work
+  is pushed; `main` and `gh-pages` are the deployed pair.
+- Generated files: `games.hand.ts` (from `games.tsv`), `sales.ts` (from
+  `sales.tsv`), `docs/GAME-LIST.md` (from the pool). Edit the sources and
+  run `npm run data:build` / `npm run list`; scripts revert direct edits.
+- Screenshots are gitignored local fallbacks; the app runs off CDN
+  remotes without them.
+- Ids are frozen (share links + filenames). Screenshots for removed
+  entries are deleted by `npm run remove` (use `--keep-shot` to keep).
+- `.kilo/` holds another session's stale worktree (clean, no unique
+  commits). Leave it alone.

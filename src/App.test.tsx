@@ -92,7 +92,7 @@ describe('App', () => {
       const n = Number((span.textContent ?? '').split('/')[0].trim())
       expect(n, label).toBeGreaterThanOrEqual(10)
     }
-  })
+  }, 30000) // 17 package clicks re-filter the whole pool; jsdom is slow at this
 
   it('caps repeat solves at 10 pts in the message', () => {
     window.localStorage.setItem('gameguesser.seenGames', JSON.stringify({ tetris: true }))

@@ -192,7 +192,8 @@ function knownFacets(): Record<'genres' | 'publishers' | 'platforms' | 'develope
   }
   return { genres, publishers, platforms, developers, franchises }
 }
-export function parseSharedPool(sp: URLSearchParams, knownPackages: string[]): SharedPoolPatch | null {  if (!sp.has('game')) return null
+export function parseSharedPool(sp: URLSearchParams, knownPackages: string[]): SharedPoolPatch | null {
+  if (!sp.has('game')) return null
   const pkg = sp.get('pkg')
   const pkgKnown = !!pkg && knownPackages.includes(pkg)
   const patch: SharedPoolPatch['patch'] = {}
