@@ -62,6 +62,10 @@ and `e84052e` (autocomplete), both pushed on `feature/persistence`.
   `deltarune` 2025 (chapters since 2018), `project-gorgon` 2026 (EA 2018),
   `soulstone-survivors` 2025, `abiotic-factor` 2025. Left as imported for the
   owner to confirm against §3c's original-release rule.
+- [x] Single-level resume (`gameguesser.level`): F5 now restores the same
+  game, screenshot and pixelation while the level is unsolved. Round
+  snapshots keep priority, the entry is dropped on solve/give-up, and
+  `?game=`/`?round=` links still win. Two new tests (90 total).
 - CI intentionally runs the fast `audit --shared-remote` gate, not the plan's
   `--strict`: strict also fails on future-dated entries, and imports can
   legitimately land announced titles. Full audit stays a local step.

@@ -26,8 +26,11 @@ commits (round persistence, autocomplete) are **not live yet**.
   single-game share links, copyable round result.
 - **Resume**: a running round and its per-level state (level, attempts,
   wrong guesses, hints, solved, shot) survive a reload via sessionStorage,
-  with resume/discard on return; `?game=`/`?round=` links win over stored
-  state. React error boundary catches crashes with a reload path.
+  with resume/discard on return. A single level with no round running is
+  parked the same way while it is unsolved (same riddle, same screenshot,
+  same pixelation); once solved or given up the snapshot is dropped so F5
+  moves on. `?game=`/`?round=` links win over stored state. React error
+  boundary catches crashes with a reload path.
 - **History**: last 30 finished rounds + personal best in localStorage,
   shown on setup and summary.
 - **Sharing**: level links (`?game=` short hash, no title spoiler), round

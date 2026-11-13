@@ -152,6 +152,42 @@ function loadStoredRound(): StoredRound | null {
   }
 }
 
+/** A single (non-round) level parked in sessionStorage: F5 keeps the same
+ *  riddle at the same pixelation until it is solved or given up. */
+const LEVEL_KEY = 'gameguesser.level'
+
+interface StoredLevel {
+  v: 1
+  gameId: string
+  levelIdx?: number
+  maxLevel?: number
+  attempts?: number
+  wrongs?: number
+  hintStage?: number
+  shotPos?: number
+}
+
+function loadStoredLevel(): StoredLevel | null {
+  try {
+    const raw = sessionStorage.getItem(LEVEL_KEY)
+    if (!raw) return null
+    const s = JSON.parse(raw) as Partial<StoredLevel>
+    if (!s || s.v !== 1 || typeof s.gameId !== 'string' || !getGame(s.gameId)) return null
+    return {
+      v: 1,
+      gameId: s.gameId,
+      levelIdx: s.levelIdx,
+      maxLevel: s.maxLevel,
+      attempts: s.attempts,
+      wrongs: s.wrongs,
+      hintStage: s.hintStage,
+      shotPos: s.shotPos,
+    }
+  } catch {
+    return null
+  }
+}
+
 const DECADES: Array<[string, number, number]> = [
   ['All', YEAR_MIN, YEAR_MAX],
   ['80s', 1980, 1989],
@@ -311,6 +347,7 @@ export default function App() {
     if (sp.has('game') || sp.get('round')) {
       try {
         sessionStorage.removeItem(ROUND_KEY)
+        sessionStorage.removeItem(LEVEL_KEY)
       } catch {
         // ignore
       }
@@ -318,20 +355,28 @@ export default function App() {
     }
     return loadStoredRound()
   })
+  // Single level from before a refresh: same game, same shot, same pixelation.
+  // Only parked while unsolved (see the mirror effect below).
+  const [initialLevel] = useState<StoredLevel | null>(() => {
+    const sp = new URLSearchParams(window.location.search)
+    if (sp.has('game') || sp.get('round')) return null
+    return loadStoredLevel()
+  })
   const [gameId, setGameId] = useState<string>(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('game')
     return (
       (fromUrl && findSharedGame(GAMES, fromUrl)?.id) ??
       initialSharedRound?.ids[initialSharedRound.pos] ??
       initialStored?.gameId ??
+      initialLevel?.gameId ??
       randomGame().id
     )
   })
-  const [levelIdx, setLevelIdx] = useState(() => storedInt(initialStored?.levelIdx, 0, LEVELS.length - 1, 0))
-  const [maxLevel, setMaxLevel] = useState(() => storedInt(initialStored?.maxLevel, 0, LEVELS.length - 1, 0))
-  const [attempts, setAttempts] = useState(() => storedInt(initialStored?.attempts, 0, 9999, 0))
-  const [wrongs, setWrongs] = useState(() => storedInt(initialStored?.wrongs, 0, 9999, 0))
-  const [hintStage, setHintStage] = useState(() => storedInt(initialStored?.hintStage, 0, 2, 0))
+  const [levelIdx, setLevelIdx] = useState(() => storedInt(initialStored?.levelIdx ?? initialLevel?.levelIdx, 0, LEVELS.length - 1, 0))
+  const [maxLevel, setMaxLevel] = useState(() => storedInt(initialStored?.maxLevel ?? initialLevel?.maxLevel, 0, LEVELS.length - 1, 0))
+  const [attempts, setAttempts] = useState(() => storedInt(initialStored?.attempts ?? initialLevel?.attempts, 0, 9999, 0))
+  const [wrongs, setWrongs] = useState(() => storedInt(initialStored?.wrongs ?? initialLevel?.wrongs, 0, 9999, 0))
+  const [hintStage, setHintStage] = useState(() => storedInt(initialStored?.hintStage ?? initialLevel?.hintStage, 0, 2, 0))
   const [solved, setSolved] = useState(() => initialStored?.solved === true)
   // repeat (capped-score) status captured at solve time: the share text must
   // report the capped points, and seen-history already contains the game after
@@ -387,7 +432,7 @@ export default function App() {
   // spelling-aid browser removed (guess autocomplete covers it)
   // session no-repeat + random screenshot per appearance (shared links: primary)
   const seenRef = useRef<Set<string>>(new Set([gameId]))
-  const [shotPos, setShotPos] = useState(() => storedInt(initialStored?.shotPos, 0, 99, 0))
+  const [shotPos, setShotPos] = useState(() => storedInt(initialStored?.shotPos ?? initialLevel?.shotPos, 0, 99, 0))
   const [shotAspect, setShotAspect] = useState<number | null>(null)
   // Actually displayed screenshot per game (follows rotation fallthrough).
   const shotHistRef = useRef(new Map<string, number>())
@@ -726,6 +771,30 @@ export default function App() {
       // ignore
     }
   }, [roundQueue, roundResults, gameId, roundListName, levelIdx, maxLevel, attempts, wrongs, hintStage, solved, gaveUp, shotPos])
+
+  // Park a single level so F5 keeps the riddle and its pixelation. Solved or
+  // revealed levels are dropped, so a refresh then moves on to a new one.
+  useEffect(() => {
+    try {
+      if (roundQueue !== null || screen !== 'play' || solved || gaveUp) {
+        sessionStorage.removeItem(LEVEL_KEY)
+      } else {
+        const parked: StoredLevel = {
+          v: 1,
+          gameId,
+          levelIdx,
+          maxLevel,
+          attempts,
+          wrongs,
+          hintStage,
+          shotPos,
+        }
+        sessionStorage.setItem(LEVEL_KEY, JSON.stringify(parked))
+      }
+    } catch {
+      // ignore
+    }
+  }, [roundQueue, screen, gameId, levelIdx, maxLevel, attempts, wrongs, hintStage, solved, gaveUp, shotPos])
 
   // If the filters exclude the current game, jump to one that matches —
   // unless the current game is a shared challenge link, or a round is running.

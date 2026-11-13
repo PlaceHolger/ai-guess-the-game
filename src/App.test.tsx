@@ -160,6 +160,26 @@ describe('App', () => {
     expect(screen.getByTitle('48×48 — 300 pts').className).toMatch(/active/)
   })
 
+  it('restores a single level (attempts, hints, resolution) after reload', () => {
+    window.sessionStorage.setItem(
+      'gameguesser.level',
+      JSON.stringify({ v: 1, gameId: 'tetris', levelIdx: 2, maxLevel: 2, attempts: 3, wrongs: 1, hintStage: 1, shotPos: 1 }),
+    )
+    render(<App />)
+    expect(screen.getByText(/Attempts:/).textContent).toMatch(/3/)
+    expect(screen.getByText(/Release year:/).textContent).toMatch(/1984/)
+    expect(screen.getByTitle('48×48 — 300 pts').className).toMatch(/active/)
+  })
+
+  it('parks a single level for F5 but not once it is solved', () => {
+    render(<App />)
+    // randomGame is mocked to tetris, so the mount effect parks it
+    expect(window.sessionStorage.getItem('gameguesser.level')).toContain('"gameId":"tetris"')
+    fireEvent.change(screen.getByPlaceholderText('Which game is this?'), { target: { value: 'Tetris (1984)' } })
+    fireEvent.click(screen.getByText('Guess'))
+    expect(window.sessionStorage.getItem('gameguesser.level')).toBeNull()
+  })
+
   it('an explicit game link overrides a stored round', () => {
     window.sessionStorage.setItem(
       'gameguesser.round',
